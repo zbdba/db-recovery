@@ -934,14 +934,14 @@ func (P *ParseRedo) MLOG_REC_MARK(data []byte, pos uint64) {
 }
 
 func (P *ParseRedo) MLOG_REC_INSERT(data []byte, pos *uint64, mytype uint64) error {
-	err, Pos := utils.ParseIndex(mytype == MLOG_COMP_REC_INSERT, data, *pos)
+	Pos, err := utils.ParseIndex(mytype == MLOG_COMP_REC_INSERT, data, *pos)
 	if err != nil {
 		return err
 	} else {
 		*pos = Pos
 
 		// page_cur_parse_insert_rec, Parses a log record of a record insert on a page.
-		err, Pos := utils.ParseInsertRecord(false, data, *pos)
+		Pos, err := utils.ParseInsertRecord(false, data, *pos)
 
 		if err != nil {
 			return err
@@ -955,7 +955,7 @@ func (P *ParseRedo) MLOG_REC_INSERT(data []byte, pos *uint64, mytype uint64) err
 
 func (P *ParseRedo) MLOG_REC_CLUST_DELETE_MARK(data []byte, pos *uint64, mytype uint64) error {
 
-	err, Pos := utils.ParseIndex(mytype == MLOG_COMP_REC_CLUST_DELETE_MARK, data, *pos)
+	Pos, err := utils.ParseIndex(mytype == MLOG_COMP_REC_CLUST_DELETE_MARK, data, *pos)
 	if err != nil {
 		return err
 	} else {
@@ -996,7 +996,7 @@ func (P *ParseRedo) MLOG_REC_CLUST_DELETE_MARK(data []byte, pos *uint64, mytype 
 }
 
 func (P *ParseRedo) MLOG_COMP_REC_SEC_DELETE_MARK(data []byte, pos *uint64) error {
-	err, Pos := utils.ParseIndex(true, data, *pos)
+	Pos, err := utils.ParseIndex(true, data, *pos)
 	if err != nil {
 		return err
 	} else {
@@ -1014,7 +1014,7 @@ func (P *ParseRedo) MLOG_REC_UPDATE_IN_PLACE(data []byte, pos *uint64, MyType ui
 		}
 	}()
 
-	err, Pos := utils.ParseIndex(MyType == MLOG_COMP_REC_UPDATE_IN_PLACE, data, *pos)
+	Pos, err := utils.ParseIndex(MyType == MLOG_COMP_REC_UPDATE_IN_PLACE, data, *pos)
 	if err != nil {
 		return err
 	} else {
@@ -1082,7 +1082,7 @@ func (P *ParseRedo) MLOG_REC_UPDATE_IN_PLACE(data []byte, pos *uint64, MyType ui
 }
 
 func (P *ParseRedo) MLOG_REC_DELETE(data []byte, pos *uint64, MyType uint64) error {
-	err, Pos := utils.ParseIndex(MyType == MLOG_COMP_REC_DELETE, data, *pos)
+	Pos, err := utils.ParseIndex(MyType == MLOG_COMP_REC_DELETE, data, *pos)
 	if err != nil {
 		return err
 	} else {
@@ -1100,7 +1100,7 @@ func (P *ParseRedo) MLOG_REC_DELETE(data []byte, pos *uint64, MyType uint64) err
 }
 
 func (P *ParseRedo) MLOG_LIST_DELETE(data []byte, pos *uint64, MyType uint64) error {
-	err, Pos := utils.ParseIndex(MyType == MLOG_COMP_LIST_START_DELETE ||
+	Pos, err := utils.ParseIndex(MyType == MLOG_COMP_LIST_START_DELETE ||
 		MyType == MLOG_COMP_LIST_END_DELETE, data, *pos)
 	if err != nil {
 		return err
@@ -1120,7 +1120,7 @@ func (P *ParseRedo) MLOG_LIST_DELETE(data []byte, pos *uint64, MyType uint64) er
 
 func (P *ParseRedo) MLOG_LIST_END_COPY_CREATED(data []byte, pos *uint64, MyType uint64) error {
 
-	err, Pos := utils.ParseIndex(MyType == MLOG_COMP_LIST_END_COPY_CREATED, data, *pos)
+	Pos, err := utils.ParseIndex(MyType == MLOG_COMP_LIST_END_COPY_CREATED, data, *pos)
 	if err != nil {
 		return err
 	} else {
@@ -1147,7 +1147,7 @@ func (P *ParseRedo) MLOG_LIST_END_COPY_CREATED(data []byte, pos *uint64, MyType 
 				logs.Debug("LogDataLen is ", LogDataLen)
 
 				// page_cur_parse_insert_rec, Parses a log record of a record insert on a page.
-				err, Pos := utils.ParseInsertRecord(true, data, *pos)
+				Pos, err := utils.ParseInsertRecord(true, data, *pos)
 				if err != nil {
 					return err
 				} else {
@@ -1165,7 +1165,7 @@ func (P *ParseRedo) MLOG_LIST_END_COPY_CREATED(data []byte, pos *uint64, MyType 
 
 func (P *ParseRedo) MLOG_PAGE_REORGANIZE(data []byte, pos *uint64, MyType uint64) error {
 
-	err, Pos := utils.ParseIndex(MyType != MLOG_PAGE_REORGANIZE, data, *pos)
+	Pos, err := utils.ParseIndex(MyType != MLOG_PAGE_REORGANIZE, data, *pos)
 	if err != nil {
 		return err
 	} else {
@@ -1225,7 +1225,7 @@ func (P *ParseRedo) MLOG_ZIP_PAGE_COMPRESS(data []byte, pos *uint64) {
 func (P *ParseRedo) MLOG_ZIP_PAGE_COMPRESS_NO_DATA(data []byte, pos *uint64) error {
 	// TODO: confirm.
 
-	err, Pos := utils.ParseIndex(true, data, *pos)
+	Pos, err := utils.ParseIndex(true, data, *pos)
 	if err != nil {
 		return err
 	} else {

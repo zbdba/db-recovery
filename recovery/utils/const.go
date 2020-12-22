@@ -101,13 +101,10 @@ const (
 	MYSQL_TYPE_GEOMETRY    = 255
 )
 
-const (
-	MySQLVersion = 5.6
-)
-
 // The MySQL integer data type range.
 const (
-	TinyIntRange = 128 * 2
+	MySQLVersion  = "5.6" // Default MySQL Version
+	TinyIntRange  = 128 * 2
 	SmallIntRange = 32768 * 2
-	IntRange = 2147483648 * 2
+	IntRange      = 2147483648 * 2
 )

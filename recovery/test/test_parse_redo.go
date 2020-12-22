@@ -15,11 +15,11 @@
 package main
 
 import (
-	`flag`
-	`fmt`
+	"flag"
+	"fmt"
 
-	`github.com/zbdba/db-recovery/recovery/redo`
-	`github.com/zbdba/db-recovery/recovery/utils/logs`
+	"github.com/zbdba/db-recovery/recovery/redo"
+	"github.com/zbdba/db-recovery/recovery/utils/logs"
 )
 
 func main() {

@@ -20,7 +20,7 @@ var (
 	Minor           = 0
 	Patch           = 0
 	GitSHA          = "Not provided"
-	BuildTime       = "Not privided"
+	BuildTime       = "Not provided"
 )
 
 func PrintLogo() string{

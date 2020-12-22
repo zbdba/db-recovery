@@ -16,30 +16,31 @@ package client
 
 import (
 	"flag"
-	`fmt`
-	"github.com/zbdba/db-recovery/recovery/redo"
-	"github.com/zbdba/db-recovery/recovery/utils/logs"
+	"fmt"
 	"runtime"
 	"strings"
 
-	"github.com/spf13/cobra"
 	"github.com/zbdba/db-recovery/recovery/ibdata"
+	"github.com/zbdba/db-recovery/recovery/redo"
+	"github.com/zbdba/db-recovery/recovery/utils/logs"
+
+	"github.com/spf13/cobra"
 )
 
 var (
-	SysDataFile    string
-	TableFile string
-	DBName    string
-	TableName string
+	SysDataFile string
+	TableFile   string
+	DBName      string
+	TableName   string
 
-	OpType    string
+	OpType string
 
 	// redo info.
-	RedoFile  string
+	RedoFile string
 
 	// set log info.
-	LogPath   string
-	LogLevel  string
+	LogPath  string
+	LogLevel string
 )
 
 func NewRootCommand(use, short string) *cobra.Command {
@@ -48,7 +49,7 @@ func NewRootCommand(use, short string) *cobra.Command {
 		Short:      short,
 		SuggestFor: []string{use},
 	}
-	rc.PersistentFlags().StringVar(&OpType, "OpType", "", "The OpType can be RecoveryData," +
+	rc.PersistentFlags().StringVar(&OpType, "OpType", "", "The OpType can be RecoveryData,"+
 		"RecoveryStruct,PrintData.")
 	rc.PersistentFlags().StringVar(&LogPath, "LogPath", "/tmp", "set the log file path.")
 	rc.PersistentFlags().StringVar(&LogLevel, "LogLevel", "DEBUG", "set the log level.")
@@ -129,7 +130,7 @@ func NewFromRedoFileCommand() *cobra.Command {
 	jc.Flags().StringVar(&SysDataFile, "SysDataFile", "", "The path of system tablespace data file.")
 	_ = jc.MarkFlagRequired("SysDataFile")
 
-	jc.Flags().StringVar(&RedoFile, "RedoFile", "", "The path of redo log file, " +
+	jc.Flags().StringVar(&RedoFile, "RedoFile", "", "The path of redo log file, "+
 		"it may have many redo log files, identify like: 'redo1','redo2'")
 	_ = jc.MarkFlagRequired("RedoFile")
 
@@ -149,7 +150,6 @@ func FromRedoFile(cmd *cobra.Command, args []string) {
 		fmt.Println(InitErr.Error())
 		return
 	}
-
 
 	p, err := redo.NewParseRedo(SysDataFile, TableName, DBName)
 
@@ -181,7 +181,7 @@ func NewVersionCommand() *cobra.Command {
 func versionCommandFunc(cmd *cobra.Command, args []string) {
 	fmt.Println(PrintLogo())
 	fmt.Printf("Project Name:%s\n", ProjectName)
-	fmt.Printf("Version %d.%d.%d\n",  Major, Minor, Patch)
+	fmt.Printf("Version %d.%d.%d\n", Major, Minor, Patch)
 	fmt.Printf("Git SHA: %s\n", GitSHA)
 	fmt.Printf("Build Time:%s\n", BuildTime)
 	fmt.Printf("Go Version:%s\n", runtime.Version())

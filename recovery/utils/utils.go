@@ -15,21 +15,22 @@
 package utils
 
 import (
-	`bytes`
-	`encoding/binary`
-	`encoding/hex`
-	`fmt`
-	`github.com/zbdba/db-recovery/recovery/utils/logs`
-	`io/ioutil`
-	`math`
-	`os`
-	`os/exec`
-	`strconv`
-	`strings`
-	`time`
+	"bytes"
+	"encoding/binary"
+	"encoding/hex"
+	"fmt"
+	"io/ioutil"
+	"math"
+	"os"
+	"os/exec"
+	"strconv"
+	"strings"
+	"time"
+
+	"github.com/zbdba/db-recovery/recovery/utils/logs"
 )
 
-// Reference MySQL rec_get_status method
+// RecGetStatus reference MySQL rec_get_status method
 func RecGetStatus(rec []byte, offset uint64) uint64 {
 	// #define REC_NEW_STATUS		3
 	// #define REC_NEW_STATUS_MASK	0x7UL
@@ -37,18 +38,19 @@ func RecGetStatus(rec []byte, offset uint64) uint64 {
 	return RecGetBitField1(rec, offset, 3, 0x7, 0)
 }
 
-// Reference MySQL ut_align_offset method
+// UtAlignOffset reference MySQL ut_align_offset method
 func UtAlignOffset(rec []byte, AlignNo uint64) uint64 {
 	return uint64(rec[0]) & (AlignNo - 1)
 }
 
+// GetIntValue ...
 func GetIntValue(FixLength int, value []byte) interface{} {
 	switch FixLength {
 	case 1:
 		v1 := (MatchReadFrom1(value) & 0x7F) | ((^MatchReadFrom1(value)) & 0x80)
 		TinyInt := int(v1)
 		TinyInt = TinyInt % TinyIntRange
-		if TinyInt > (TinyIntRange/2-1) {
+		if TinyInt > (TinyIntRange/2 - 1) {
 			TinyInt = TinyInt - TinyIntRange
 		}
 		return TinyInt
@@ -56,7 +58,7 @@ func GetIntValue(FixLength int, value []byte) interface{} {
 		v2 := (MatchReadFrom2(value) & 0x7FFF) | ((^MatchReadFrom2(value)) & 0x8000)
 		SmallInt := int(v2)
 		SmallInt = SmallInt % SmallIntRange
-		if SmallInt > (SmallIntRange/2-1) {
+		if SmallInt > (SmallIntRange/2 - 1) {
 			SmallInt = SmallInt - SmallIntRange
 		}
 		return SmallInt
@@ -67,16 +69,15 @@ func GetIntValue(FixLength int, value []byte) interface{} {
 			// Value is positive
 			v3 &= 0x007FFFFF
 			return v3
-		} else {
-			// Value is negative
-			return int64(v3) ^ (-1 << (3 * 8 - 1))
 		}
+		// Value is negative
+		return int64(v3) ^ (-1 << (3*8 - 1))
 
 	case 4:
 		v4 := (MatchReadFrom4(value) & 0x7FFFFFFF) | ((^MatchReadFrom4(value)) & 0x80000000)
 		IntValue := int(v4)
 		IntValue = IntValue % IntRange
-		if IntValue > (IntRange/2-1) {
+		if IntValue > (IntRange/2 - 1) {
 			IntValue = IntValue - IntRange
 		}
 		return IntValue
@@ -89,6 +90,7 @@ func GetIntValue(FixLength int, value []byte) interface{} {
 	return 0
 }
 
+// GetUintValue ...
 func GetUintValue(FixLength int, value []byte) uint64 {
 	switch FixLength {
 	case 1:
@@ -111,69 +113,71 @@ func GetUintValue(FixLength int, value []byte) uint64 {
 	return 0
 }
 
-// Reference MySQL rec_offs_nth_size method.
+// RecOffsNthSize reference MySQL rec_offs_nth_size method.
 func RecOffsNthSize(offsets *[]uint64, n int) uint64 {
 	if n == 0 {
 		// REC_OFFS_MASK
 		return (*offsets)[2:][1+n] & ((1 << 30) - 1)
-	} else {
-		// REC_OFFS_MASK
-		return ((*offsets)[2:][1+n] - (*offsets)[2:][n]) & ((1 << 30) - 1)
 	}
+	// REC_OFFS_MASK
+	return ((*offsets)[2:][1+n] - (*offsets)[2:][n]) & ((1 << 30) - 1)
 }
 
-// Reference MySQL rec_offs_size method.
+// RecOffsSize reference MySQL rec_offs_size method.
 func RecOffsSize(offsets *[]uint64) uint64 {
 	return RecOffsDataSize(offsets) + RecOffsExtraSize(offsets)
 }
 
-// Reference MySQL rec_offs_extra_size method.
+// RecOffsExtraSize reference MySQL rec_offs_extra_size method.
 func RecOffsExtraSize(offsets *[]uint64) uint64 {
 	return (((*offsets)[2:])[0]) &^ ((1 << 31) | (1 << 30))
 	//return ^((1 << 31) | (1 << 30))
 }
 
-// Reference MySQL rec_offs_data_size method.
+// RecOffsDataSize reference MySQL rec_offs_data_size method.
 func RecOffsDataSize(offsets *[]uint64) uint64 {
 	return (*offsets)[2:][RecOffNFields(offsets)]
 }
 
-// Reference MySQL rec_offs_n_fields method.
+// RecOffNFields reference MySQL rec_offs_n_fields method.
 func RecOffNFields(offsets *[]uint64) uint64 {
 	return (*offsets)[1]
 }
 
-// Reference MySQL rec_1_get_field_end_info method.
+// Rec1GetFieldEndInfo reference MySQL rec_1_get_field_end_info method.
 func Rec1GetFieldEndInfo(d []byte, offset uint64, n uint64) uint64 {
 	// #define REC_N_OLD_EXTRA_BYTES	6
 	return MatchReadFrom1(d[offset-(6+n+1):])
 }
 
-// Reference MySQL rec_2_get_field_end_info method.
+// Rec2GetFieldEndInfo reference MySQL rec_2_get_field_end_info method.
 func Rec2GetFieldEndInfo(d []byte, offset uint64, n uint64) uint64 {
 	// return(mach_read_from_2(rec - (REC_N_OLD_EXTRA_BYTES + 2 * n + 2)));
 	return MatchReadFrom2(d[offset-(6+2*n+2):])
 }
 
-// Reference MySQL rec_get_1byte_offs_flag
+// RecGet1byteOffsFlag reference MySQL rec_get_1byte_offs_flag
 func RecGet1byteOffsFlag(rec []byte, offset uint64) uint64 {
 	// return (rec_get_bit_field_1(rec, REC_OLD_SHORT, REC_OLD_SHORT_MASK,
 	// REC_OLD_SHORT_SHIFT));
 	return RecGetBitField1(rec, offset, 3, 0x1, 0)
 }
 
+// RecGetBitField1 ...
 func RecGetBitField1(rec []byte, offset uint64, offs uint64, mask uint64, shift uint64) uint64 {
 	//return (MatchReadFrom1(rec[(uint64(len(rec)) - offs):]) & mask) >> shift
-	return (MatchReadFrom1(rec[(offset - offs):]) & mask) >> shift
+	return (MatchReadFrom1(rec[(offset-offs):]) & mask) >> shift
 }
 
-//#define rec_get_nth_field(rec, offsets, n, len) \
-//((rec) + rec_get_nth_field_offs(offsets, n, len))
+// RecGetNthField ...
+// #define rec_get_nth_field(rec, offsets, n, len) \
+// ((rec) + rec_get_nth_field_offs(offsets, n, len))
 func RecGetNthField(rec []byte, offsets []uint64, n int, length *uint64) []byte {
 	offs := RecGetNthFieldOffs(offsets, n, length)
 	return rec[offs:]
 }
 
+// RecGetNthFieldOffs ...
 func RecGetNthFieldOffs(offsets []uint64, n int, len *uint64) uint64 {
 	var offs uint64
 	var length uint64
@@ -201,6 +205,7 @@ func RecGetNthFieldOffs(offsets []uint64, n int, len *uint64) uint64 {
 	return offs
 }
 
+// ReadNextBytes ...
 func ReadNextBytes(file *os.File, number int) ([]byte, error) {
 	bytes := make([]byte, number)
 
@@ -212,19 +217,24 @@ func ReadNextBytes(file *os.File, number int) ([]byte, error) {
 	return bytes, nil
 }
 
+// MatchReadFrom1 ...
 func MatchReadFrom1(b []byte) uint64 {
 	return (uint64)(b[0])
 }
+
+// MatchReadFrom2 ...
 func MatchReadFrom2(b []byte) uint64 {
 	return ((uint64)(b[0]) << 8) | (uint64)(b[1])
 }
 
+// MatchReadFrom3 ...
 func MatchReadFrom3(b []byte) uint64 {
 	return ((uint64)(b[0]) << 16) |
 		((uint64)(b[1]) << 8) |
 		(uint64)(b[2])
 }
 
+// MatchReadFrom4 ...
 func MatchReadFrom4(b []byte) uint64 {
 	return ((uint64)(b[0]) << 24) |
 		((uint64)(b[1]) << 16) |
@@ -232,28 +242,34 @@ func MatchReadFrom4(b []byte) uint64 {
 		(uint64)(b[3])
 }
 
+// MatchReadFrom7 ...
 func MatchReadFrom7(b []byte) uint64 {
 	return UtUllCreate(MatchReadFrom3(b), MatchReadFrom4(b[3:]))
 }
 
+// UtUllCreate ...
 func UtUllCreate(high uint64, low uint64) uint64 {
 	return high<<32 | low
 }
 
+// MatchReadFrom8 ...
 func MatchReadFrom8(b []byte) uint64 {
 	ull := MatchReadFrom4(b) << 32
 	ull |= MatchReadFrom4(b[4:])
 	return ull
 }
 
+// PageHeaderGetField ...
 func PageHeaderGetField(b []byte, field uint64) uint64 {
 	return MatchReadFrom2(b[38+field:])
 }
 
+// PageIsComp ...
 func PageIsComp(b []byte) uint64 {
 	return PageHeaderGetField(b, 4) & 0x8000
 }
 
+// MatchParseCompressed ...
 func MatchParseCompressed(data []byte, pos uint64) (uint64, uint64, error) {
 
 	Num1, err := strconv.ParseInt("80", 16, 64)
@@ -290,6 +306,7 @@ func MatchParseCompressed(data []byte, pos uint64) (uint64, uint64, error) {
 	}
 }
 
+// MatchGetCompressedSize ...
 func MatchGetCompressedSize(n uint64) (uint64, error) {
 
 	Num1, err := strconv.ParseInt("80", 16, 64)
@@ -316,19 +333,27 @@ func MatchGetCompressedSize(n uint64) (uint64, error) {
 
 }
 
+// ParseBinaryInt8 ...
 func ParseBinaryInt8(data []byte) int8 {
 	return int8(data[0])
 }
+
+// ParseBinaryUint8 ...
 func ParseBinaryUint8(data []byte) uint8 {
 	return data[0]
 }
+
+// ParseBinaryInt16 ...
 func ParseBinaryInt16(data []byte) int16 {
 	return int16(binary.LittleEndian.Uint16(data))
 }
+
+// ParseBinaryUint16 ...
 func ParseBinaryUint16(data []byte) uint16 {
 	return binary.LittleEndian.Uint16(data)
 }
 
+// ParseBinaryInt24 ...
 func ParseBinaryInt24(data []byte) int32 {
 	u32 := uint32(ParseBinaryUint24(data))
 	if u32&0x00800000 != 0 {
@@ -336,32 +361,43 @@ func ParseBinaryInt24(data []byte) int32 {
 	}
 	return int32(u32)
 }
+
+// ParseBinaryUint24 ...
 func ParseBinaryUint24(data []byte) uint32 {
 	return uint32(data[0]) | uint32(data[1])<<8 | uint32(data[2])<<16
 }
 
+// ParseBinaryInt32 ...
 func ParseBinaryInt32(data []byte) int32 {
 	return int32(binary.LittleEndian.Uint32(data))
 }
+
+// ParseBinaryUint32 ...
 func ParseBinaryUint32(data []byte) uint32 {
 	return binary.LittleEndian.Uint32(data)
 }
 
+// ParseBinaryInt64 ...
 func ParseBinaryInt64(data []byte) int64 {
 	return int64(binary.LittleEndian.Uint64(data))
 }
+
+// ParseBinaryUint64 ...
 func ParseBinaryUint64(data []byte) uint64 {
 	return binary.LittleEndian.Uint64(data)
 }
 
+// ParseBinaryFloat32 ...
 func ParseBinaryFloat32(data []byte) float32 {
 	return math.Float32frombits(binary.LittleEndian.Uint32(data))
 }
 
+// ParseBinaryFloat64 ...
 func ParseBinaryFloat64(data []byte) float64 {
 	return math.Float64frombits(binary.LittleEndian.Uint64(data))
 }
 
+// MatchUllReadComPressed ...
 func MatchUllReadComPressed(b []byte, pos *uint64) uint64 {
 	// TODO: num should add to pos
 	n, num, err := MatchParseCompressed(b, *pos)
@@ -380,6 +416,7 @@ func MatchUllReadComPressed(b []byte, pos *uint64) uint64 {
 	return n
 }
 
+// MatchUllReadMuchCompressed ...
 func MatchUllReadMuchCompressed(b []byte) (uint64, error) {
 	var n uint64
 	var size uint64
@@ -412,6 +449,7 @@ func MatchUllReadMuchCompressed(b []byte) (uint64, error) {
 	return n, nil
 }
 
+// MachUllGetMuchCompressedSize ...
 func MachUllGetMuchCompressedSize(num uint64) uint64 {
 
 	n, err := MatchGetCompressedSize(num)
@@ -431,6 +469,7 @@ func MachUllGetMuchCompressedSize(num uint64) uint64 {
 	return n1 + n2
 }
 
+// ReadIntoStruct ...
 func ReadIntoStruct(file *os.File, dest interface{}, size int) error {
 	data, err := ReadNextBytes(file, int(size))
 	if err != nil {
@@ -447,13 +486,14 @@ func ReadIntoStruct(file *os.File, dest interface{}, size int) error {
 	return nil
 }
 
-func ParseIndex(comp bool, data []byte, pos uint64) (error, uint64) {
+// ParseIndex ...
+func ParseIndex(comp bool, data []byte, pos uint64) (uint64, error) {
 	if comp {
 		if uint64(len(data)) < (pos + 4) {
 			ErrMsg := fmt.Sprintf("data is to short")
 			logs.Debug(ErrMsg)
 			err := fmt.Errorf(ErrMsg)
-			return err, 0
+			return 0, err
 		}
 		n := MatchReadFrom2(data[pos:])
 		pos += 2
@@ -465,7 +505,7 @@ func ParseIndex(comp bool, data []byte, pos uint64) (error, uint64) {
 			ErrMsg := fmt.Sprintf("data is to short")
 			logs.Debug(ErrMsg)
 			err := fmt.Errorf(ErrMsg)
-			return err, 0
+			return 0, err
 		}
 
 		var i uint64
@@ -477,10 +517,11 @@ func ParseIndex(comp bool, data []byte, pos uint64) (error, uint64) {
 		}
 	}
 
-	return nil, pos
+	return pos, nil
 }
 
-func ParseInsertRecord(IsShort bool, data []byte, pos uint64) (error, uint64) {
+// ParseInsertRecord ...
+func ParseInsertRecord(IsShort bool, data []byte, pos uint64) (uint64, error) {
 	if !IsShort {
 		offset := MatchReadFrom2(data[pos:])
 		pos += 2
@@ -489,7 +530,7 @@ func ParseInsertRecord(IsShort bool, data []byte, pos uint64) (error, uint64) {
 
 	EndSegLen, num, err := MatchParseCompressed(data, pos)
 	if err != nil {
-		return err, 0
+		return 0, err
 	}
 
 	pos += num
@@ -498,14 +539,14 @@ func ParseInsertRecord(IsShort bool, data []byte, pos uint64) (error, uint64) {
 		ErrMsg := fmt.Sprintf("data is too short")
 		logs.Debug(ErrMsg)
 		err := fmt.Errorf(ErrMsg)
-		return err, 0
+		return 0, err
 	}
 
 	Num1, err := strconv.ParseInt("1", 16, 64)
 
 	if (EndSegLen & uint64(Num1)) != 0 {
 		InfoAndStatusBits := MatchReadFrom1(data[pos:])
-		pos += 1
+		pos++
 		OriginOffset, num, err := MatchParseCompressed(data, pos)
 
 		if err != nil {
@@ -527,9 +568,10 @@ func ParseInsertRecord(IsShort bool, data []byte, pos uint64) (error, uint64) {
 	logs.Debug("EndSegLen is ", EndSegLen)
 	pos += EndSegLen
 
-	return nil, pos
+	return pos, nil
 }
 
+// ParseData ...
 // TODO: deal with chinese, many character, should provide solutions.
 func ParseData(DataType uint64, MySQLType uint64,
 	data []byte, FieldLen uint64, FixLength int,
@@ -564,9 +606,9 @@ func ParseData(DataType uint64, MySQLType uint64,
 		return string(data[:FieldLen]), nil
 	case DATA_BINARY:
 		switch MySQLType {
-			case MYSQL_TYPE_VARCHAR:
-				*IsBinary = true
-				return ParseBlob(data[:FieldLen]), nil
+		case MYSQL_TYPE_VARCHAR:
+			*IsBinary = true
+			return ParseBlob(data[:FieldLen]), nil
 		default:
 			if FixLength != 0 {
 				return GetUintValue(FixLength, data[:FieldLen]), nil
@@ -584,9 +626,8 @@ func ParseData(DataType uint64, MySQLType uint64,
 		default:
 			if IsUnsigned {
 				return GetUintValue(FixLength, data[:FieldLen]), nil
-			} else {
-				return GetIntValue(FixLength, data[:FieldLen]), nil
 			}
+			return GetIntValue(FixLength, data[:FieldLen]), nil
 		}
 	case DATA_FLOAT:
 		FormatFloat := ParseFloat(data)
@@ -607,14 +648,14 @@ func ParseData(DataType uint64, MySQLType uint64,
 		if *IsBinary {
 			FormatBlobToHex := ParseBlob(data[:FieldLen])
 			return FormatBlobToHex, nil
-		} else {
-			// TODO: when use chinese, client and server charset should be the same.
-			return string(data[:FieldLen]), nil
 		}
+		// TODO: when use chinese, client and server charset should be the same.
+		return string(data[:FieldLen]), nil
 	}
 	return nil, nil
 }
 
+// GetFixedLengthByMySQLType ...
 func GetFixedLengthByMySQLType(MySQLType uint64, FieldLen uint64) uint64 {
 
 	switch MySQLType {
@@ -656,6 +697,7 @@ func GetFixedLengthByMySQLType(MySQLType uint64, FieldLen uint64) uint64 {
 	return 0
 }
 
+// GetFixedLength ...
 func GetFixedLength(DataType uint64, FieldLen uint64) uint64 {
 
 	switch DataType {
@@ -689,12 +731,14 @@ func GetFixedLength(DataType uint64, FieldLen uint64) uint64 {
 	}
 }
 
+// GetMaxLength ...
 func GetMaxLength(MySQLType uint64) {
 	// TODO: impl
 	switch MySQLType {
 	}
 }
 
+// GetTimeFormat ...
 func GetTimeFormat(data []byte) int {
 	d := MatchReadFrom8(data)
 	var year, month, day, hour, min, sec int
@@ -736,11 +780,11 @@ func GetTimeFormat(data []byte) int {
 		hour >= 0 && hour <= 23 && min >= 0 &&
 		min <= 59 && sec >= 0 && sec <= 59 {
 		return 2
-	} else {
-		return 0
 	}
+	return 0
 }
 
+// ParseDateTime ...
 func ParseDateTime(data []byte) string {
 	format := GetTimeFormat(data)
 	if format == 1 || format == 0 {
@@ -781,6 +825,7 @@ func ParseDateTime(data []byte) string {
 
 }
 
+// ParseDate ...
 func ParseDate(data []byte) string {
 
 	ldate := MatchReadFrom3(data)
@@ -795,31 +840,33 @@ func ParseDate(data []byte) string {
 	return DateTime
 }
 
+// ParseTime ...
 func ParseTime(data []byte) string {
 
 	// TODO: add time_precision and fixed_length.
 	var hour, min, sec uint
-	var IsNagative bool
+	var IsNegative bool
 
 	ltime := int64(MatchReadFrom3(data))
 	ltime = ltime - 0x800000
 	if ltime < 0 {
-		IsNagative = true
+		IsNegative = true
 		ltime = -ltime
 	}
 
 	// TODO: add param or remove this code.
-	if (MySQLVersion == 5.6) {
+	switch MySQLVersion {
+	case "5.6":
 		hour = uint((ltime & 0x3FF000) >> 12)
 		min = uint((ltime & 0xFC0) >> 6)
 		sec = uint(ltime & 0x3F)
 
 		FormatTime := fmt.Sprintf("%02d:%02d:%02d", hour, min, sec)
-		if IsNagative {
+		if IsNegative {
 			FormatTime = "-" + FormatTime
 		}
 		return FormatTime
-	} else {
+	default:
 		ltime = ltime &^ (1 << 23)
 		sec = uint(int(ltime % 60))
 		ltime /= 60
@@ -827,11 +874,11 @@ func ParseTime(data []byte) string {
 		ltime /= 60
 		hour = uint(int(ltime % 24))
 		FormatTime := fmt.Sprintf("%02d:%02d:%02d", hour, min, sec)
-
 		return FormatTime
 	}
 }
 
+// ParseTimeStamp ...
 func ParseTimeStamp(data []byte) string {
 	// TODO: add time_precision
 	t := MatchReadFrom4(data)
@@ -839,18 +886,21 @@ func ParseTimeStamp(data []byte) string {
 	return tm
 }
 
+// ParseFloat ...
 func ParseFloat(data []byte) float32 {
 	bits := binary.LittleEndian.Uint32(data[:4])
 	float := math.Float32frombits(bits)
 	return float
 }
 
+// ParseDouble ...
 func ParseDouble(data []byte) float64 {
 	bits := binary.LittleEndian.Uint64(data[:8])
 	double := math.Float64frombits(bits)
 	return double
 }
 
+// ParseBlob ...
 func ParseBlob(data []byte) string {
 	dst := make([]byte, hex.EncodedLen(len(data)))
 	hex.Encode(dst, data)
@@ -858,6 +908,7 @@ func ParseBlob(data []byte) string {
 	return FormatDst
 }
 
+// EscapeValue ...
 func EscapeValue(colValue string) string {
 	// TODO: confirm other conditions will make error or inconsistent.
 	var esc string
@@ -895,6 +946,7 @@ func EscapeValue(colValue string) string {
 	return colBuffer.String()
 }
 
+// GetFilesFromOS ...
 func GetFilesFromOS(FilePath string) ([]string, error) {
 	c := fmt.Sprintf("ls -lrt %s|grep ibd|awk '{print $9}'|awk -F '.' '{print $1}'", FilePath)
 	cmd := exec.Command("/bin/bash", "-c", c)
@@ -923,7 +975,7 @@ func GetFilesFromOS(FilePath string) ([]string, error) {
 	return strings.Split(string(bytes), "\n"), nil
 }
 
-// FixedLengthInt: little endian
+// FixedLengthInt little endian
 func FixedLengthInt(buf []byte) uint64 {
 	var num uint64 = 0
 	for i, b := range buf {
