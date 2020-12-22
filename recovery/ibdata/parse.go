@@ -28,138 +28,20 @@ import (
 type ParseIB struct {
 	// store table's struct.
 	TableMap map[uint64]Tables
-
-	// TODO: change to map.
-	// store page data.
+	// TODO: change to map. store page data.
 	D *sync.Map
 }
 
-// Store the table structure info.
-type Tables struct {
-	DBName    string
-	TableName string
-	Columns   []Columns
-	Indexes   map[uint64]Indexes
-	NullCount int
-	SpaceId   uint64
-}
-
-// Store the table columns info.
-type Columns struct {
-	FieldName  string
-	FieldType  uint64
-	MySQLType  uint64
-	FieldPos   uint64
-	FieldLen   uint64
-	FieldValue interface{}
-	IsNUll     bool
-	IsBinary   bool
-	IsUnsigned bool
-	TableID    uint64
-}
-
-// Store the table index info.
-type Indexes struct {
-	Id        uint64
-	Name      string
-	FieldNum  uint64
-	IndexType uint64
-	Fields    []*Fields
-}
-
-// Store the fields of the table index.
-type Fields struct {
-	ColumnPos  uint64
-	ColumnName string
-	//ColumnType  uint64
-	ColumnValue interface{}
-}
-
-// Store the data dictionary info.
-type DataDict struct {
-	IndexId    uint64
-	PageOffset uint64
-	data       []byte
-	pos        int
-}
-
-// Name those fields with MySQL code style.
-// It Store the MySQL page file header.
-// Reference https://dev.mysql.com/doc/internals/en/innodb-fil-header.html
-type FilHeader struct {
-	FIL_PAGE_SPACE          uint64
-	FIL_PAGE_OFFSET         uint64
-	FIL_PAGE_PREV           uint64
-	FIL_PAGE_NEXT           uint64
-	FIL_PAGE_LSN            uint64
-	FIL_PAGE_TYPE           uint64
-	FIL_PAGE_FILE_FLUSH_LSN uint64
-	FIL_PAGE_ARCH_LOG_NO    uint64
-}
-
-// Name those fields with MySQL code style.
-// It Store the MySQL page header, only the index page have this header.
-// Reference https://dev.mysql.com/doc/internals/en/innodb-page-header.html
-type PageHeader struct {
-	PAGE_N_DIR_SLOTS  uint64
-	PAGE_HEAP_TOP     uint64
-	PAGE_N_HEAP       uint64
-	PAGE_FREE         uint64
-	PAGE_GARBAGE      uint64
-	PAGE_LAST_INSERT  uint64
-	PAGE_DIRECTION    uint64
-	PAGE_N_DIRECTION  uint64
-	PAGE_N_RECS       uint64
-	PAGE_MAX_TRX_ID   uint64
-	PAGE_LEVEL        uint64
-	PAGE_INDEX_ID     uint64
-	PAGE_BTR_SEG_LEAF uint64
-	PAGE_BTR_SEG_TOP  uint64
-}
-
-// Name those fields with MySQL code style.
-// It Store the MySQL system page header, only the system page have this header.
-// Reference mysql-5.7.19/storage/innobase/include/dict0boot.h
-type SystemPageHeader struct {
-	DICT_HDR_ROW_ID       uint64
-	DICT_HDR_TABLE_ID     uint64
-	DICT_HDR_INDEX_ID     uint64
-	DICT_HDR_MAX_SPACE_ID uint64
-	DICT_HDR_MIX_ID_LOW   uint64
-	DICT_HDR_TABLES       uint64
-	DICT_HDR_TABLE_IDS    uint64
-	DICT_HDR_COLUMNS      uint64
-	DICT_HDR_INDEXES      uint64
-	DICT_HDR_FIELDS       uint64
-}
-
-type Page struct {
-	// All MySQL page have this header.
-	fh FilHeader
-
-	// Only the index page have this header.
-	ph PageHeader
-
-	// only system page have.
-	sp           SystemPageHeader
-
-	// Store the page data.
-	OriginalData []byte
-	data         []byte
-}
-
 func NewParseIB() *ParseIB {
-	p := &ParseIB{}
-	TableMap := make(map[uint64]Tables)
-	d := new(sync.Map)
-	p.TableMap = TableMap
-	p.D = d
-	return p
+	return &ParseIB{
+		TableMap: make(map[uint64]Tables),
+		D:        new(sync.Map),
+	}
 }
 
 // Parse the data file, The data file is composed of multiple pages,
 // each page is 16kb by default.
-func (P *ParseIB) ParseFile(path string) ([]Page, error) {
+func (p *ParseIB) ParseFile(path string) ([]Page, error) {
 
 	var AllPages []Page
 	file, err := os.Open(path)
@@ -185,7 +67,7 @@ func (P *ParseIB) ParseFile(path string) ([]Page, error) {
 		}
 
 		// Parse the page file header.
-		p, err := P.ParseFilHeader(d)
+		p, err := p.ParseFilHeader(d)
 		if err != nil {
 			return nil, err
 		}
@@ -209,12 +91,11 @@ func SliceInsert(c []Columns, index int, value Columns) []Columns {
 	return append(append(c[:index], value), rear...)
 }
 
-
 // Sort the columns.
-func (P *ParseIB) SortColumns() {
+func (p *ParseIB) SortColumns() {
 
 	var SortColumns []Columns
-	for _, table := range P.TableMap {
+	for _, table := range p.TableMap {
 		for i, field := range table.Columns {
 			if field.FieldPos == uint64(i) {
 				SortColumns = append(SortColumns, field)
@@ -226,19 +107,19 @@ func (P *ParseIB) SortColumns() {
 }
 
 // Move the primary key field to the first.
-func (P *ParseIB) MovePrimaryKeyFirst() {
+func (p *ParseIB) MovePrimaryKeyFirst() {
 
-	for TableId, table := range P.TableMap {
+	for TableId, table := range p.TableMap {
 		for _, idx := range table.Indexes {
 			if idx.Name == "PRIMARY" {
-				table.Columns = P.MoveArrayElement(idx.Fields, table.Columns)
+				table.Columns = p.MoveArrayElement(idx.Fields, table.Columns)
 			}
 		}
-		P.TableMap[TableId] = table
+		p.TableMap[TableId] = table
 	}
 }
 
-func (P *ParseIB) MoveArrayElement(fields []*Fields, columns []Columns) []Columns {
+func (p *ParseIB) MoveArrayElement(fields []*Fields, columns []Columns) []Columns {
 
 	for i := 0; i < len(columns); i++ {
 		for j, field := range fields {
@@ -256,34 +137,34 @@ func (P *ParseIB) MoveArrayElement(fields []*Fields, columns []Columns) []Column
 // When we parse a table row, we should add this internal columns.
 // If table have primary key,there should have two internal fields: DB_TRX_ID, DB_ROLL_PTR.
 // otherwise there should have three internal fields:DB_ROW_ID, DB_TRX_ID, DB_ROLL_PTR.
-func (P *ParseIB) AddInternalColumns() {
-	for TableId, table := range P.TableMap {
+func (p *ParseIB) AddInternalColumns() {
+	for TableId, table := range p.TableMap {
 		for _, idx := range table.Indexes {
 			if idx.Name == "PRIMARY" {
 				// have primary key, add DB_TRX_ID, DB_ROLL_PTR after primary field.
-				TrxColumns := P.AddInternalColumnsLow("DB_TRX_ID", TableId, idx.FieldNum)
-				RollPtrColumns := P.AddInternalColumnsLow("DB_ROLL_PTR", TableId, idx.FieldNum+1)
+				TrxColumns := p.AddInternalColumnsLow("DB_TRX_ID", TableId, idx.FieldNum)
+				RollPtrColumns := p.AddInternalColumnsLow("DB_ROLL_PTR", TableId, idx.FieldNum+1)
 
 				table.Columns = SliceInsert(table.Columns, int(idx.FieldNum), TrxColumns)
 				table.Columns = SliceInsert(table.Columns, int(idx.FieldNum+1), RollPtrColumns)
-				P.TableMap[TableId] = table
+				p.TableMap[TableId] = table
 			} else if idx.Name == "GEN_CLUST_INDEX" {
 				// don't have primary key, should add DB_ROW_ID field.
 				// TODO: remove repeat code.
-				RowIdColumns := P.AddInternalColumnsLow("DB_ROW_ID", TableId, 0)
-				TrxColumns := P.AddInternalColumnsLow("DB_TRX_ID", TableId, 1)
-				RollPtrColumns := P.AddInternalColumnsLow("DB_ROLL_PTR", TableId, 2)
+				RowIdColumns := p.AddInternalColumnsLow("DB_ROW_ID", TableId, 0)
+				TrxColumns := p.AddInternalColumnsLow("DB_TRX_ID", TableId, 1)
+				RollPtrColumns := p.AddInternalColumnsLow("DB_ROLL_PTR", TableId, 2)
 
 				table.Columns = SliceInsert(table.Columns, 0, RowIdColumns)
 				table.Columns = SliceInsert(table.Columns, 1, TrxColumns)
 				table.Columns = SliceInsert(table.Columns, 2, RollPtrColumns)
-				P.TableMap[TableId] = table
+				p.TableMap[TableId] = table
 			}
 		}
 	}
 }
 
-func (P *ParseIB) AddInternalColumnsLow(InternalFieldName string, TableId uint64, FieldPos uint64) Columns {
+func (p *ParseIB) AddInternalColumnsLow(InternalFieldName string, TableId uint64, FieldPos uint64) Columns {
 
 	var InternalField Columns
 	switch InternalFieldName {
@@ -301,11 +182,11 @@ func (P *ParseIB) AddInternalColumnsLow(InternalFieldName string, TableId uint64
 }
 
 // Get all column info from sys column dict tables.
-func (P *ParseIB) GetAllColumns() error {
+func (p *ParseIB) GetAllColumns() error {
 
 	var AllPageColumns [][]Columns
-	columns := P.MakeSysColumnsColumns()
-	v, ok := P.D.Load(SysColumnsIdx)
+	columns := p.MakeSysColumnsColumns()
+	v, ok := p.D.Load(SysColumnsIdx)
 	if !ok {
 		ErrMsg := fmt.Sprintf("sys column's page have not found")
 		logs.Error(ErrMsg)
@@ -317,13 +198,13 @@ func (P *ParseIB) GetAllColumns() error {
 	for _, dt := range dts {
 
 		// Start parse sys column table page.
-		AllColumns := P.ParsePage(dt.data, dt.pos, columns, false, 0)
+		AllColumns := p.ParsePage(dt.data, dt.pos, columns, false, 0)
 		AllPageColumns = append(AllPageColumns, AllColumns...)
 	}
 
 	for _, c := range AllPageColumns {
 
-		v, ok := P.TableMap[c[0].FieldValue.(uint64)]
+		v, ok := p.TableMap[c[0].FieldValue.(uint64)]
 		if ok {
 			t := v
 
@@ -334,7 +215,7 @@ func (P *ParseIB) GetAllColumns() error {
 			// #define DATA_NOT_NULL	256
 			// this is ORed to the precise type when the column is declared as NOT NULL
 			// TODO: const
-			if c[6].FieldValue.(uint64) & 256 == 0 {
+			if c[6].FieldValue.(uint64)&256 == 0 {
 				IsNull = true
 				t.NullCount++
 			}
@@ -367,24 +248,24 @@ func (P *ParseIB) GetAllColumns() error {
 					FieldName: c[4].FieldValue.(string),
 					FieldType: c[5].FieldValue.(uint64),
 					MySQLType: MySQLType,
-					FieldPos: c[1].FieldValue.(uint64),
-					FieldLen: TempFieldLen,
-					IsNUll: IsNull, IsUnsigned: IsUnsigned,
-					TableID: c[0].FieldValue.(uint64),
+					FieldPos:  c[1].FieldValue.(uint64),
+					FieldLen:  TempFieldLen,
+					IsNUll:    IsNull, IsUnsigned: IsUnsigned,
+					TableID:  c[0].FieldValue.(uint64),
 					IsBinary: IsBinary})
 
-			P.TableMap[c[0].FieldValue.(uint64)] = t
+			p.TableMap[c[0].FieldValue.(uint64)] = t
 		}
 	}
 	return nil
 }
 
 // Get all index info from sys index dict table.
-func (P *ParseIB) GetAllIndexes() error {
+func (p *ParseIB) GetAllIndexes() error {
 
 	var AllPageColumns [][]Columns
-	columns := P.MakeSysIndexesColumns()
-	v, ok := P.D.Load(SysIndexesIdx)
+	columns := p.MakeSysIndexesColumns()
+	v, ok := p.D.Load(SysIndexesIdx)
 	if !ok {
 		ErrMsg := fmt.Sprintf("sys indexs's page have not found")
 		logs.Error(ErrMsg)
@@ -394,14 +275,14 @@ func (P *ParseIB) GetAllIndexes() error {
 	dts := v.([]DataDict)
 	for _, dt := range dts {
 		// Start parse sys indexes table pages.
-		AllColumns := P.ParsePage(dt.data, dt.pos, columns, false, 0)
+		AllColumns := p.ParsePage(dt.data, dt.pos, columns, false, 0)
 		AllPageColumns = append(AllPageColumns, AllColumns...)
 
 	}
 
 	for _, columns := range AllPageColumns {
 		var index map[uint64]Indexes
-		v, ok := P.TableMap[columns[0].FieldValue.(uint64)]
+		v, ok := p.TableMap[columns[0].FieldValue.(uint64)]
 
 		if ok {
 			t := v
@@ -415,13 +296,13 @@ func (P *ParseIB) GetAllIndexes() error {
 
 			index[columns[1].FieldValue.(uint64)] =
 				Indexes{
-					Id: columns[1].FieldValue.(uint64),
-					Name: columns[4].FieldValue.(string),
+					Id:        columns[1].FieldValue.(uint64),
+					Name:      columns[4].FieldValue.(string),
 					IndexType: columns[6].FieldValue.(uint64),
-					FieldNum: columns[5].FieldValue.(uint64)}
+					FieldNum:  columns[5].FieldValue.(uint64)}
 
 			t.Indexes = index
-			P.TableMap[columns[0].FieldValue.(uint64)] = t
+			p.TableMap[columns[0].FieldValue.(uint64)] = t
 		} else {
 			logs.Error("Table ID have not found ", columns[0].FieldValue)
 		}
@@ -430,11 +311,11 @@ func (P *ParseIB) GetAllIndexes() error {
 }
 
 // Get all fields from sys fields dict table.
-func (P *ParseIB) GetAllFields() error {
+func (p *ParseIB) GetAllFields() error {
 
 	var AllPageColumns [][]Columns
-	columns := P.MakeSysFieldsColumns()
-	v, ok := P.D.Load(SysFieldsIdx)
+	columns := p.MakeSysFieldsColumns()
+	v, ok := p.D.Load(SysFieldsIdx)
 	if !ok {
 		ErrMsg := fmt.Sprintf("sys field's page have not found")
 		logs.Error(ErrMsg)
@@ -444,7 +325,7 @@ func (P *ParseIB) GetAllFields() error {
 	dts := v.([]DataDict)
 	for _, dt := range dts {
 		// Start parse sys fields table pages.
-		AllColumns := P.ParsePage(dt.data, dt.pos, columns, false, 0)
+		AllColumns := p.ParsePage(dt.data, dt.pos, columns, false, 0)
 		AllPageColumns = append(AllPageColumns, AllColumns...)
 	}
 
@@ -467,7 +348,7 @@ func (P *ParseIB) GetAllFields() error {
 	}
 
 	// Scan all table index and get fields from index map
-	for TableId, table := range P.TableMap {
+	for TableId, table := range p.TableMap {
 		// Scan table index's array.
 		for IndexId, idx := range table.Indexes {
 			v, ok := IndexFieldsMap[IndexId]
@@ -477,17 +358,17 @@ func (P *ParseIB) GetAllFields() error {
 			}
 			table.Indexes[IndexId] = idx
 		}
-		P.TableMap[TableId] = table
+		p.TableMap[TableId] = table
 	}
 
 	return nil
 }
 
 // Get all table info from sys dict tables.
-func (P *ParseIB) GetAllTables() error {
+func (p *ParseIB) GetAllTables() error {
 
-	columns := P.MakeSysTablesColumns()
-	v, ok := P.D.Load(SysTablesIdx)
+	columns := p.MakeSysTablesColumns()
+	v, ok := p.D.Load(SysTablesIdx)
 	if !ok {
 		ErrMsg := fmt.Sprintf("sys table's page have not found")
 		logs.Error(ErrMsg)
@@ -498,7 +379,7 @@ func (P *ParseIB) GetAllTables() error {
 	for _, dt := range dts {
 
 		// parse sys table page.
-		AllColumns := P.ParsePage(dt.data, dt.pos, columns, false, 0)
+		AllColumns := p.ParsePage(dt.data, dt.pos, columns, false, 0)
 
 		for _, columns := range AllColumns {
 			// database and table name, for example: zbdba3/jingbo_test
@@ -511,30 +392,30 @@ func (P *ParseIB) GetAllTables() error {
 			} else {
 				TBName = columns[0].FieldValue.(string)
 			}
-			P.TableMap[columns[3].FieldValue.(uint64)] =
+			p.TableMap[columns[3].FieldValue.(uint64)] =
 				Tables{
-				DBName: DBName,
-				TableName: TBName,
-				NullCount: 0,
-				SpaceId: columns[9].FieldValue.(uint64)}
+					DBName:    DBName,
+					TableName: TBName,
+					NullCount: 0,
+					SpaceId:   columns[9].FieldValue.(uint64)}
 		}
 	}
 	return nil
 }
 
 // Get table struct in dict page.
-func (P *ParseIB) ParseDictPage(FilePath string) error {
+func (p *ParseIB) ParseDictPage(FilePath string) error {
 
-	pages, err := P.ParseFile(FilePath)
+	pages, err := p.ParseFile(FilePath)
 	if err != nil {
 		logs.Error("parse system data file failed, the error is ", err)
 		return err
 	}
 
 	var SystemPage Page
-	for _, p := range pages {
-		if p.fh.FIL_PAGE_OFFSET == SystemPageIdx {
-			SystemPage, err = P.ParseSysPageHeader(p)
+	for _, page := range pages {
+		if page.fh.FIL_PAGE_OFFSET == SystemPageIdx {
+			SystemPage, err = p.ParseSysPageHeader(page)
 			if err != nil {
 				return err
 			}
@@ -543,91 +424,91 @@ func (P *ParseIB) ParseDictPage(FilePath string) error {
 	}
 
 	// Get all dict pages, and use map to store all dict page's data.
-	for _, p := range pages {
+	for _, page := range pages {
 
 		// TODO: Parse undo page from sys data file.
 		//if p.fh.FIL_PAGE_TYPE == uint64(2) {
 		//	P.ParseUndoPageHeader(&p)
 		//}
 
-		if p.fh.FIL_PAGE_OFFSET == SystemPage.sp.DICT_HDR_TABLES ||
-			p.fh.FIL_PAGE_OFFSET == SystemPage.sp.DICT_HDR_COLUMNS ||
-			p.fh.FIL_PAGE_OFFSET == SystemPage.sp.DICT_HDR_INDEXES ||
-			p.fh.FIL_PAGE_OFFSET == SystemPage.sp.DICT_HDR_FIELDS {
+		if page.fh.FIL_PAGE_OFFSET == SystemPage.sp.DICT_HDR_TABLES ||
+			page.fh.FIL_PAGE_OFFSET == SystemPage.sp.DICT_HDR_COLUMNS ||
+			page.fh.FIL_PAGE_OFFSET == SystemPage.sp.DICT_HDR_INDEXES ||
+			page.fh.FIL_PAGE_OFFSET == SystemPage.sp.DICT_HDR_FIELDS {
 
 			var ds []DataDict
-			P.ParsePageHeader(&p)
+			p.ParsePageHeader(&page)
 			ds = append(ds,
 				DataDict{
-					IndexId: p.ph.PAGE_INDEX_ID,
-					PageOffset: p.fh.FIL_PAGE_OFFSET,
-					data: p.OriginalData,
-					pos: len(p.OriginalData) - len(p.data)})
-			P.D.Store(p.ph.PAGE_INDEX_ID, ds)
+					IndexId:    page.ph.PAGE_INDEX_ID,
+					PageOffset: page.fh.FIL_PAGE_OFFSET,
+					data:       page.OriginalData,
+					pos:        len(page.OriginalData) - len(page.data)})
+			p.D.Store(page.ph.PAGE_INDEX_ID, ds)
 
-			logs.Debug("page offset is ", p.fh.FIL_PAGE_OFFSET,
-				"indexId is", p.ph.PAGE_INDEX_ID, " data len is ", len(ds))
+			logs.Debug("page offset is ", page.fh.FIL_PAGE_OFFSET,
+				"indexId is", page.ph.PAGE_INDEX_ID, " data len is ", len(ds))
 
 		} else {
 			f := func(k, v interface{}) bool {
-				if k == p.ph.PAGE_INDEX_ID {
+				if k == page.ph.PAGE_INDEX_ID {
 					ds := v.([]DataDict)
-					P.ParsePageHeader(&p)
+					p.ParsePageHeader(&page)
 					ds = append(ds,
 						DataDict{
-							IndexId: p.ph.PAGE_INDEX_ID,
-							PageOffset: p.fh.FIL_PAGE_OFFSET,
-							data: p.OriginalData,
-								pos: len(p.OriginalData) - len(p.data)})
-					P.D.Store(p.ph.PAGE_INDEX_ID, ds)
+							IndexId:    page.ph.PAGE_INDEX_ID,
+							PageOffset: page.fh.FIL_PAGE_OFFSET,
+							data:       page.OriginalData,
+							pos:        len(page.OriginalData) - len(page.data)})
+					p.D.Store(page.ph.PAGE_INDEX_ID, ds)
 
-					logs.Debug("page offset is ", p.fh.FIL_PAGE_OFFSET,
-						"indexId is", p.ph.PAGE_INDEX_ID, " data len is ", len(ds))
+					logs.Debug("page offset is ", page.fh.FIL_PAGE_OFFSET,
+						"indexId is", page.ph.PAGE_INDEX_ID, " data len is ", len(ds))
 				}
 				return true
 			}
-			P.D.Range(f)
+			p.D.Range(f)
 		}
 	}
 
 	logs.Debug("start parse sys_tables.")
-	GetTableErr := P.GetAllTables()
+	GetTableErr := p.GetAllTables()
 	if GetTableErr != nil {
 		return GetTableErr
 	}
 
 	logs.Debug("start parse sys_columns.")
-	GetColumnErr := P.GetAllColumns()
+	GetColumnErr := p.GetAllColumns()
 	if GetColumnErr != nil {
 		return GetTableErr
 	}
 
 	logs.Debug("start parse sys_index.")
-	GetIndexesErr := P.GetAllIndexes()
+	GetIndexesErr := p.GetAllIndexes()
 	if GetIndexesErr != nil {
 		return GetIndexesErr
 	}
 
 	logs.Debug("start parse sys_fields.")
-	GetFieldsErr := P.GetAllFields()
+	GetFieldsErr := p.GetAllFields()
 	if GetFieldsErr != nil {
 		return GetFieldsErr
 	}
 
 	// Sort fields
 	// TODO: why some table fields is not sort?
-	P.SortColumns()
+	p.SortColumns()
 
 	// Move primary key first.
-	P.MovePrimaryKeyFirst()
+	p.MovePrimaryKeyFirst()
 
 	// Add internal columns.
-	P.AddInternalColumns()
+	p.AddInternalColumns()
 
 	return nil
 }
 
-func (P *ParseIB) ParseSysPageHeader(page Page) (Page, error) {
+func (p *ParseIB) ParseSysPageHeader(page Page) (Page, error) {
 
 	pos := 0
 	d := page.data
@@ -685,68 +566,68 @@ func (P *ParseIB) ParseSysPageHeader(page Page) (Page, error) {
 	return page, nil
 }
 
-func (P *ParseIB) ParseFilHeader(d []byte) (Page, error) {
+func (p *ParseIB) ParseFilHeader(d []byte) (Page, error) {
 
-	var p Page
+	var page Page
 	pos := 0
 
 	// Get index id
 	IndexId := utils.MatchReadFrom8(d[(pos + 38 + 28):])
 	logs.Debug("Index is is ", IndexId)
-	p.ph.PAGE_INDEX_ID = IndexId
+	page.ph.PAGE_INDEX_ID = IndexId
 
 	// Parse Fil Header
 	SpaceId := utils.MatchReadFrom4(d[pos:])
 	logs.Debug("SpaceId:", SpaceId)
-	p.fh.FIL_PAGE_SPACE = SpaceId
+	page.fh.FIL_PAGE_SPACE = SpaceId
 	pos += 4
 
 	PageOffset := utils.MatchReadFrom4(d[pos:])
 	logs.Debug("PageOffset:", PageOffset)
-	p.fh.FIL_PAGE_OFFSET = PageOffset
+	page.fh.FIL_PAGE_OFFSET = PageOffset
 	pos += 4
 
 	PagePrev := utils.MatchReadFrom4(d[pos:])
 	logs.Debug("PagePrev:", PagePrev)
-	p.fh.FIL_PAGE_PREV = PagePrev
+	page.fh.FIL_PAGE_PREV = PagePrev
 	pos += 4
 
 	PageNext := utils.MatchReadFrom4(d[pos:])
 	logs.Debug("PagePrev:", PageNext)
-	p.fh.FIL_PAGE_NEXT = PageNext
+	page.fh.FIL_PAGE_NEXT = PageNext
 	pos += 4
 
 	PageLsn := utils.MatchReadFrom8(d[pos:])
 	logs.Debug("PageLsn:", PageLsn)
-	p.fh.FIL_PAGE_LSN = PageLsn
+	page.fh.FIL_PAGE_LSN = PageLsn
 	pos += 8
 
 	PageType := utils.MatchReadFrom2(d[pos:])
 	logs.Debug("PageType:", PageType)
-	p.fh.FIL_PAGE_TYPE = PageType
+	page.fh.FIL_PAGE_TYPE = PageType
 	pos += 2
 
 	PageFileFlushLsn := utils.MatchReadFrom8(d[pos:])
 	logs.Debug("PageFileFlushLsn:", PageFileFlushLsn)
-	p.fh.FIL_PAGE_LSN = PageFileFlushLsn
+	page.fh.FIL_PAGE_LSN = PageFileFlushLsn
 	pos += 8
 
 	PageArchLogNo := utils.MatchReadFrom4(d[pos:])
 	logs.Debug("PageArchLogNo:", PageArchLogNo)
-	p.fh.FIL_PAGE_ARCH_LOG_NO = PageArchLogNo
+	page.fh.FIL_PAGE_ARCH_LOG_NO = PageArchLogNo
 	pos += 4
 
-	p.data = d[pos:]
+	page.data = d[pos:]
 
-	return p, nil
+	return page, nil
 }
 
 // TODO: parse undo info from system data file.
-func (P *ParseIB) ParseUndoPageHeader(page *Page) *Page {
+func (p *ParseIB) ParseUndoPageHeader(page *Page) *Page {
 
 	d := page.data
 	var pos uint64
-	pos= 0
+	pos = 0
 
 	TRX_UNDO_PAGE_TYPE := utils.MatchReadFrom2(d[pos:])
 	fmt.Println("the TRX_UNDO_PAGE_TYPE is ", TRX_UNDO_PAGE_TYPE)
@@ -754,68 +635,68 @@ func (P *ParseIB) ParseUndoPageHeader(page *Page) *Page {
 
 	TRX_UNDO_PAGE_START := utils.MatchReadFrom2(d[pos:])
 	fmt.Println("the TRX_UNDO_PAGE_START is ", TRX_UNDO_PAGE_START)
-	pos +=2
+	pos += 2
 
 	TRX_UNDO_PAGE_FREE := utils.MatchReadFrom2(d[pos:])
 	fmt.Println("the TRX_UNDO_PAGE_FREE is ", TRX_UNDO_PAGE_FREE)
-	pos +=2
+	pos += 2
 
 	pos += 12
 
 	// The undo log segment header
 	TRX_UNDO_STATE := utils.MatchReadFrom2(d[pos:])
 	fmt.Println("the TRX_UNDO_STATE is ", TRX_UNDO_STATE)
-	pos +=2
+	pos += 2
 
 	TRX_UNDO_LAST_LOG := utils.MatchReadFrom2(d[pos:])
 	fmt.Println("the TRX_UNDO_LAST_LOG is ", TRX_UNDO_LAST_LOG)
-	pos +=2
+	pos += 2
 
 	//TRX_UNDO_FSEG_HEADER := utils.MatchReadFrom2(d[pos:])
 	//fmt.Println("the TRX_UNDO_FSEG_HEADER is ", TRX_UNDO_FSEG_HEADER)
 	//pos +=2
 
 	// TRX_UNDO_PAGE_LIST
-	pos +=10
+	pos += 10
 
-	pos +=16
+	pos += 16
 
 	// Start parse undo log (undo log header and data)
-	TRX_UNDO_TRX_ID:= utils.MatchReadFrom8(d[pos:])
+	TRX_UNDO_TRX_ID := utils.MatchReadFrom8(d[pos:])
 	fmt.Println("the TRX_UNDO_TRX_ID is ", TRX_UNDO_TRX_ID)
-	pos +=8
+	pos += 8
 
-	TRX_UNDO_TRX_NO:= utils.MatchReadFrom8(d[pos:])
+	TRX_UNDO_TRX_NO := utils.MatchReadFrom8(d[pos:])
 	fmt.Println("the TRX_UNDO_TRX_NO is ", TRX_UNDO_TRX_NO)
-	pos +=8
+	pos += 8
 
-	TRX_UNDO_DEL_MARKS:= utils.MatchReadFrom2(d[pos:])
+	TRX_UNDO_DEL_MARKS := utils.MatchReadFrom2(d[pos:])
 	fmt.Println("the TRX_UNDO_DEL_MARKS is ", TRX_UNDO_DEL_MARKS)
-	pos +=2
+	pos += 2
 
-	TRX_UNDO_LOG_START:= utils.MatchReadFrom2(d[pos:])
+	TRX_UNDO_LOG_START := utils.MatchReadFrom2(d[pos:])
 	fmt.Println("the TRX_UNDO_LOG_START is ", TRX_UNDO_LOG_START)
-	pos +=2
+	pos += 2
 
-	TRX_UNDO_XID_EXISTS:= utils.MatchReadFrom1(d[pos:])
+	TRX_UNDO_XID_EXISTS := utils.MatchReadFrom1(d[pos:])
 	fmt.Println("the TRX_UNDO_XID_EXISTS is ", TRX_UNDO_XID_EXISTS)
-	pos +=1
+	pos += 1
 
-	TRX_UNDO_DICT_TRANS:= utils.MatchReadFrom1(d[pos:])
+	TRX_UNDO_DICT_TRANS := utils.MatchReadFrom1(d[pos:])
 	fmt.Println("the TRX_UNDO_DICT_TRANS is ", TRX_UNDO_DICT_TRANS)
-	pos +=1
+	pos += 1
 
-	TRX_UNDO_TABLE_ID:= utils.MatchReadFrom8(d[pos:])
+	TRX_UNDO_TABLE_ID := utils.MatchReadFrom8(d[pos:])
 	fmt.Println("the TRX_UNDO_TABLE_ID is ", TRX_UNDO_TABLE_ID)
-	pos +=8
+	pos += 8
 
-	TRX_UNDO_NEXT_LOG:= utils.MatchReadFrom2(d[pos:])
+	TRX_UNDO_NEXT_LOG := utils.MatchReadFrom2(d[pos:])
 	fmt.Println("the TRX_UNDO_NEXT_LOG is ", TRX_UNDO_NEXT_LOG)
-	pos +=2
+	pos += 2
 
-	TRX_UNDO_PREV_LOG:= utils.MatchReadFrom2(d[pos:])
+	TRX_UNDO_PREV_LOG := utils.MatchReadFrom2(d[pos:])
 	fmt.Println("the TRX_UNDO_PREV_LOG is ", TRX_UNDO_PREV_LOG)
-	pos +=2
+	pos += 2
 
 	// the undo log start at TRX_UNDO_LOG_START.
 	tmp_pos := TRX_UNDO_LOG_START - 38
@@ -847,7 +728,7 @@ func (P *ParseIB) ParseUndoPageHeader(page *Page) *Page {
 
 	//pos += 1
 	num := utils.MachUllGetMuchCompressedSize(UndoNo)
-	tmp_pos += num;
+	tmp_pos += num
 
 	TableId, err := utils.MatchUllReadMuchCompressed(d[tmp_pos:])
 	fmt.Println("table id is ", TableId)
@@ -884,11 +765,10 @@ func (P *ParseIB) ParseUndoPageHeader(page *Page) *Page {
 	//TableId1, err := utils.MatchUllReadMuchCompressed(d[tmp_pos1:])
 	//fmt.Println("table id is ", TableId1)
 
-
-	return page;
+	return page
 }
 
-func (P *ParseIB) ParsePageHeader(page *Page) *Page {
+func (p *ParseIB) ParsePageHeader(page *Page) *Page {
 
 	d := page.data
 	pos := 0
@@ -968,7 +848,7 @@ func (P *ParseIB) ParsePageHeader(page *Page) *Page {
 // 7.Fil Trailer
 // Read all those info and parse according to its protocol.
 // TODO: support compress and encrypt page.
-func (P *ParseIB) ParsePage(d []byte, pos int, columns []Columns, IsRecovery bool, PageFree uint64) [][]Columns {
+func (p *ParseIB) ParsePage(d []byte, pos int, columns []Columns, IsRecovery bool, PageFree uint64) [][]Columns {
 
 	// catch panic
 	//defer func() {
@@ -1002,7 +882,7 @@ func (P *ParseIB) ParsePage(d []byte, pos int, columns []Columns, IsRecovery boo
 
 		// mysql-5.7.19/storage/innobase/include/page0page.h
 		// #define PAGE_OLD_INFIMUM	(PAGE_DATA + 1 + REC_N_OLD_EXTRA_BYTES)
-		infimum = 38 + 36 + 2 * 10 + 1 + 6
+		infimum = 38 + 36 + 2*10 + 1 + 6
 
 		// mysql-5.7.19/storage/innobase/include/page0page.h
 		// #define PAGE_OLD_SUPREMUM	(PAGE_DATA + 2 + 2 * REC_N_OLD_EXTRA_BYTES + 8)
@@ -1036,26 +916,26 @@ func (P *ParseIB) ParsePage(d []byte, pos int, columns []Columns, IsRecovery boo
 	var TotalLen uint64
 	for {
 		// TODO: const
-		if offset < (16384 - 6) && (offset != supremum) {
+		if offset < (16384-6) && (offset != supremum) {
 			var c []Columns
 			logs.Debug("offset is ", offset, " supremum is ", supremum)
 
 			// TODO: confirm the array length
-			var offsets []uint64 = make([]uint64, len(columns) * 2, len(columns) * 2)
+			var offsets []uint64 = make([]uint64, len(columns)*2, len(columns)*2)
 			origin := d[offset:]
 
 			// Parse the row offset array, use the offset array can get
 			// the column offset and len in the row.
 			if utils.PageIsComp(d) == 0 {
-				P.IbrecInitOffsetsOld(d, offset, origin, &offsets, uint64(len(columns)))
+				p.IbrecInitOffsetsOld(d, offset, origin, &offsets, uint64(len(columns)))
 			} else {
-				v, ok := P.TableMap[columns[0].TableID]
+				v, ok := p.TableMap[columns[0].TableID]
 				if !ok {
 					logs.Error("can't find table by field's table id ", columns[0].TableID)
 					break
 				}
 				table := v
-				InitOffset := P.IbrecInitOffsetsNew(d, offset, origin, &offsets, table)
+				InitOffset := p.IbrecInitOffsetsNew(d, offset, origin, &offsets, table)
 				if !InitOffset {
 					goto END
 				}
@@ -1065,11 +945,11 @@ func (P *ParseIB) ParsePage(d []byte, pos int, columns []Columns, IsRecovery boo
 			//	fmt.Println(i, value)
 			//}
 
-			if !P.CheckFieldSize(&offsets, columns) {
+			if !p.CheckFieldSize(&offsets, columns) {
 				break
 			}
 
-			c, _ = P.ParseRecords(d, origin, offsets, columns)
+			c, _ = p.ParseRecords(d, origin, offsets, columns)
 			TotalLen += utils.RecOffsSize(&offsets)
 			AllColumns = append(AllColumns, c)
 
@@ -1105,7 +985,7 @@ func (P *ParseIB) ParsePage(d []byte, pos int, columns []Columns, IsRecovery boo
 
 // Parse cluster index leaf page records, it corresponds to a row of data in the table.
 // Reference https://dev.mysql.com/doc/internals/en/innodb-overview.html
-func (P *ParseIB) ParseRecords(d []byte, o []byte, offsets []uint64, columns []Columns) ([]Columns, uint64) {
+func (p *ParseIB) ParseRecords(d []byte, o []byte, offsets []uint64, columns []Columns) ([]Columns, uint64) {
 
 	var FieldLen uint64
 	for i := 0; i < len(columns); i++ {
@@ -1137,7 +1017,7 @@ func (P *ParseIB) ParseRecords(d []byte, o []byte, offsets []uint64, columns []C
 
 // Make the sys tables column info
 // Reference mysql-5.7.19/storage/innobase/dict/dict0boot.cc
-func (P *ParseIB) MakeSysTablesColumns() []Columns {
+func (p *ParseIB) MakeSysTablesColumns() []Columns {
 
 	var columns []Columns
 	columns = append(columns, Columns{FieldName: "NAME", FieldType: 4, FieldPos: 0, FieldLen: 0})
@@ -1156,7 +1036,7 @@ func (P *ParseIB) MakeSysTablesColumns() []Columns {
 
 // Make the sys columns table column info
 // Reference mysql-5.7.19/storage/innobase/dict/dict0boot.cc
-func (P *ParseIB) MakeSysColumnsColumns() []Columns {
+func (p *ParseIB) MakeSysColumnsColumns() []Columns {
 
 	var columns []Columns
 	columns = append(columns, Columns{FieldName: "TABLE_ID", FieldType: 4, FieldPos: 0, FieldLen: 8})
@@ -1174,7 +1054,7 @@ func (P *ParseIB) MakeSysColumnsColumns() []Columns {
 
 // Make the sys indexes table column info
 // Reference mysql-5.7.19/storage/innobase/dict/dict0boot.cc
-func (P *ParseIB) MakeSysIndexesColumns() []Columns {
+func (p *ParseIB) MakeSysIndexesColumns() []Columns {
 
 	var columns []Columns
 	columns = append(columns, Columns{FieldName: "TABLE_ID", FieldType: 4, FieldPos: 0, FieldLen: 8})
@@ -1192,7 +1072,7 @@ func (P *ParseIB) MakeSysIndexesColumns() []Columns {
 
 // Make the sys fields table column info
 // Reference mysql-5.7.19/storage/innobase/dict/dict0boot.cc
-func (P *ParseIB) MakeSysFieldsColumns() []Columns {
+func (p *ParseIB) MakeSysFieldsColumns() []Columns {
 
 	var columns []Columns
 	columns = append(columns, Columns{FieldName: "INDEX_ID", FieldType: 4, FieldPos: 0, FieldLen: 8})
@@ -1204,10 +1084,10 @@ func (P *ParseIB) MakeSysFieldsColumns() []Columns {
 	return columns
 }
 
-func (P *ParseIB) CheckFieldSize(offsets *[]uint64, columns []Columns) bool {
+func (p *ParseIB) CheckFieldSize(offsets *[]uint64, columns []Columns) bool {
 	for i := 0; i < len(columns); i++ {
 		if utils.GetFixedLength(columns[i].FieldType, columns[i].FieldLen) != 0 {
-			DataLen := utils.RecOffsNthSize(offsets, i);
+			DataLen := utils.RecOffsNthSize(offsets, i)
 			if DataLen == 0 && columns[i].IsNUll {
 				continue
 			}
@@ -1222,7 +1102,7 @@ func (P *ParseIB) CheckFieldSize(offsets *[]uint64, columns []Columns) bool {
 	return true
 }
 
-func (P *ParseIB) GetColumnType(ColumnName string, columns []Columns) uint64 {
+func (p *ParseIB) GetColumnType(ColumnName string, columns []Columns) uint64 {
 	for _, f := range columns {
 		if f.FieldName == ColumnName {
 			return f.FieldType
@@ -1233,13 +1113,13 @@ func (P *ParseIB) GetColumnType(ColumnName string, columns []Columns) uint64 {
 
 // TODO: read table struct info use sql parse,
 //  user should identify the create table sql statement.
-func (P *ParseIB) GetTableFieldsFromStruct() {
+func (p *ParseIB) GetTableFieldsFromStruct() {
 	// TODO: need sql parser
 }
 
-func (P *ParseIB) GetTableColumnsFromDict(DBName string, TableName string) ([]Columns, error) {
+func (p *ParseIB) GetTableColumnsFromDict(DBName string, TableName string) ([]Columns, error) {
 	var columns []Columns
-	for _, table := range P.TableMap {
+	for _, table := range p.TableMap {
 		if table.DBName == DBName && table.TableName == TableName {
 			columns = table.Columns
 		}
@@ -1247,9 +1127,9 @@ func (P *ParseIB) GetTableColumnsFromDict(DBName string, TableName string) ([]Co
 	return columns, nil
 }
 
-func (P *ParseIB) GetTableFromDict(DBName string, TableName string) (Tables, error) {
+func (p *ParseIB) GetTableFromDict(DBName string, TableName string) (Tables, error) {
 	var table Tables
-	for _, t := range P.TableMap {
+	for _, t := range p.TableMap {
 		if t.DBName == DBName && t.TableName == TableName {
 			table = t
 		}
@@ -1258,25 +1138,25 @@ func (P *ParseIB) GetTableFromDict(DBName string, TableName string) (Tables, err
 }
 
 // TODO: recovery table structure from system data dictionary.
-func (P *ParseIB) RecoveryTableStruct(path string, DBName string, TableName string) (string, error) {
-	_, ParseFileErr := P.ParseFile(path)
+func (p *ParseIB) RecoveryTableStruct(path string, DBName string, TableName string) (string, error) {
+	_, ParseFileErr := p.ParseFile(path)
 	if ParseFileErr != nil {
 		return "", ParseFileErr
 	}
 
 	// Get table fields.
-	table, GetFieldsErr := P.GetTableFromDict(DBName, TableName)
+	table, GetFieldsErr := p.GetTableFromDict(DBName, TableName)
 	if GetFieldsErr != nil {
 		return "", GetFieldsErr
 	}
 
-	CreateTableSql := P.MakeCreateTableSql(table)
+	CreateTableSql := p.MakeCreateTableSql(table)
 
 	return CreateTableSql, nil
 }
 
 // TODO: use column info to make create table sql statement.
-func (P *ParseIB) MakeCreateTableSql(table Tables) string {
+func (p *ParseIB) MakeCreateTableSql(table Tables) string {
 	return ""
 }
 
@@ -1284,14 +1164,14 @@ func (P *ParseIB) MakeCreateTableSql(table Tables) string {
 // path/database name/table name which can confirm the table info.
 // You should identify the IsRecovery to confirm
 // whether recovery table data or just read table data.
-func (P *ParseIB) ParseTableData(path string, DBName string, TableName string, IsRecovery bool) error {
-	pages, ParseFileErr := P.ParseFile(path)
+func (p *ParseIB) ParseTableData(path string, DBName string, TableName string, IsRecovery bool) error {
+	pages, ParseFileErr := p.ParseFile(path)
 	if ParseFileErr != nil {
 		return ParseFileErr
 	}
 
 	// Get table fields info from data dict.
-	fields, GetFieldsErr := P.GetTableColumnsFromDict(DBName, TableName)
+	fields, GetFieldsErr := p.GetTableColumnsFromDict(DBName, TableName)
 	if GetFieldsErr != nil {
 		logs.Error("get fields from dict failed, the error is ", GetFieldsErr,
 			" the db name is ", DBName, " the table name is ", TableName)
@@ -1303,7 +1183,7 @@ func (P *ParseIB) ParseTableData(path string, DBName string, TableName string, I
 		logs.Debug("page.fh.FIL_PAGE_TYPE is ", page.fh.FIL_PAGE_TYPE,
 			"page.fh.FIL_PAGE_OFFSET", page.fh.FIL_PAGE_OFFSET)
 
-		P.ParsePageHeader(&page)
+		p.ParsePageHeader(&page)
 
 		if IsRecovery {
 			// If page have delete data, the page free and garbage should not be zero.
@@ -1327,8 +1207,8 @@ func (P *ParseIB) ParseTableData(path string, DBName string, TableName string, I
 		if page.fh.FIL_PAGE_TYPE == FilPageIndex &&
 			page.ph.PAGE_LEVEL == uint64(0) &&
 			page.ph.PAGE_MAX_TRX_ID == uint64(0) &&
-			!(IsRecovery && page.ph.PAGE_FREE == 0){
-			AllColumns := P.ParsePage(page.OriginalData, len(page.OriginalData)-len(page.data),
+			!(IsRecovery && page.ph.PAGE_FREE == 0) {
+			AllColumns := p.ParsePage(page.OriginalData, len(page.OriginalData)-len(page.data),
 				fields, IsRecovery, page.ph.PAGE_FREE)
 			if len(AllColumns) == 0 {
 				logs.Info("have no data")
@@ -1336,21 +1216,20 @@ func (P *ParseIB) ParseTableData(path string, DBName string, TableName string, I
 			}
 
 			// Make replace into statement.
-			P.MakeReplaceIntoStatement(AllColumns, TableName, DBName)
+			p.MakeReplaceIntoStatement(AllColumns, TableName, DBName)
 		}
 	}
 	return nil
 }
 
 // Make row data to replace into statement, it will be more convenient when restoring data.
-func (P *ParseIB) MakeReplaceIntoStatement(AllColumns [][]Columns, table string, database string) {
+func (p *ParseIB) MakeReplaceIntoStatement(AllColumns [][]Columns, table string, database string) {
 	var buf bytes.Buffer
 	var query string
 
 	fmt.Println("Print the format sql statement: ")
 
 	for _, columns := range AllColumns {
-
 
 		buf.WriteString(fmt.Sprintf("replace into `%s`.`%s` values (", database, table))
 		firstCol := true
@@ -1408,7 +1287,7 @@ func (P *ParseIB) MakeReplaceIntoStatement(AllColumns [][]Columns, table string,
 // rec_init_offsets
 // When MySQL innodb Storage use REDUNDANT row format, use this method
 // to calculate offset array which store column start offset and length.
-func (P *ParseIB) IbrecInitOffsetsOld(d []byte, offset uint64, o []byte, offsets *[]uint64, FieldNum uint64) {
+func (p *ParseIB) IbrecInitOffsetsOld(d []byte, offset uint64, o []byte, offsets *[]uint64, FieldNum uint64) {
 
 	(*offsets)[2:][0] = 0
 	(*offsets)[1] = FieldNum
@@ -1463,7 +1342,7 @@ func (P *ParseIB) IbrecInitOffsetsOld(d []byte, offset uint64, o []byte, offsets
 
 // When MySQL innodb Storage use COMPACT row format, use this method
 // to calculate offset array which store column start offset and length.
-func (P *ParseIB) IbrecInitOffsetsNew(d []byte, offset uint64, o []byte, offsets *[]uint64, table Tables) bool {
+func (p *ParseIB) IbrecInitOffsetsNew(d []byte, offset uint64, o []byte, offsets *[]uint64, table Tables) bool {
 
 	(*offsets)[2:][0] = 0
 	// TODO: maybe three internal fields, the rowid?

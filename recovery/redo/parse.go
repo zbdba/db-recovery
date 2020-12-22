@@ -15,81 +15,15 @@
 package redo
 
 import (
-	`fmt`
-	`io`
-	`os`
-	`strings`
+	"fmt"
+	"io"
+	"os"
+	"strings"
 
 	"github.com/zbdba/db-recovery/recovery/ibdata"
 	"github.com/zbdba/db-recovery/recovery/utils"
 	"github.com/zbdba/db-recovery/recovery/utils/logs"
 )
-
-// The MySQL Innodb redo file checkpoint info.
-type Checkpoint struct {
-	// 0x00 8 Log checkpoint number
-	Number      uint64
-
-	// 0x08 8 Log sequence number of checkpoint
-	LSN         uint64
-
-	// 0x10 4 Offset to the log entry, calculated by log_group_calc_lsn_offset() [19]
-	Offset      uint32
-
-	// 0x14 4 Size of the buffer (a fixed value: 2 · 1024 · 1024)
-	BufferSize  uint32
-
-	// 0x18 8 Archived log sequence number. If UNIV_LOG_ARCHIVE is not activated,
-	// InnoDB inserts FF FF FF FF FF FF FF FF here.
-	ArchivedLSN uint64
-
-	// 0x20 256 Spacing and padding
-	_           [256]byte
-
-	// 0x120 4 Checksum 1 (validating the contents from offset 0x00 to 0x19F)
-	Checksum1   uint32
-
-	// 0x124 4 Checksum 2 (validating the block without the log sequence number,
-	// but including checksum 1, i.e. values from 0x08 to0x124)
-	Checksum2   uint32
-
-	// 0x128 4 Current fsp free limit in tablespace 0, given in units of one megabyte;
-	// used by ibbackup to decide if unused ends of non-auto-extending data files in
-	// space 0 can be truncated [20]
-	CuurentFSP  uint32
-
-	// 0x12C 4 Magic number that tells if the checkpoint contains the field
-	// above (added to InnoDB version 3.23.50 [20])
-	Magic       uint32
-
-	// Padding
-	_           [208]byte
-}
-
-// The MySQL Innodb redo block
-type LogBlock struct {
-	// 0x00 Log block header number. If the most significant bit is 1,
-	// the following block is the first block in a log flush write segment. [20].
-	HeaderNumber            uint32
-
-	// Number of bytes written to this block.
-	BlockSize               uint16
-
-	// Offset to the first start of a log record group of
-	// this block (see II-D3 for further details).
-	Offset                  uint16
-
-	// Number of the currently active checkpoint (see II-C).
-	CurrentActiveCheckpoint uint32
-
-	//HdrSize                 uint16 // Hdr-size
-	Data     [496]byte
-
-	//  Checksum of the log block contents. In InnoDB versions 3.23.52
-	//  or earlier this did not contain the checksum but the same value
-	//  as LOG_BLOCK_HDR_NO [20].  Table IV
-	Checksum uint32
-}
 
 type ParseRedo struct {
 	// Store table info.
@@ -102,6 +36,20 @@ type ParseRedo struct {
 	DBName string
 }
 
+func NewParseRedo(IbFilePath string, TableName string, DBName string) (*ParseRedo, error) {
+	p := &ParseRedo{TableName: TableName, DBName: DBName}
+
+	// get data dict
+	I := ibdata.NewParseIB()
+	ParseDictErr := I.ParseDictPage(IbFilePath)
+	if ParseDictErr != nil {
+		return nil, ParseDictErr
+	}
+	p.TableMap = I.TableMap
+
+	return p, nil
+}
+
 // Parse the redo log file
 // The redo log file have four parts:
 // 1.redo log header
@@ -110,7 +58,7 @@ type ParseRedo struct {
 // 4.redo block
 // And every parts is 512 bytes, there will be many
 // redo blocks which store the redo record.
-func (P *ParseRedo) Parse(LogFileList []string) error {
+func (parse *ParseRedo) Parse(LogFileList []string) error {
 	var data []byte
 	for _, LogFile := range LogFileList {
 		file, err := os.Open(LogFile)
@@ -121,13 +69,13 @@ func (P *ParseRedo) Parse(LogFileList []string) error {
 		defer file.Close()
 
 		// Parse read redo log header
-		ReadHaderErr := P.ReadHeader(file)
+		ReadHaderErr := parse.ReadHeader(file)
 		if ReadHaderErr != nil {
 			return ReadHaderErr
 		}
 
 		// Parse read redo log checkpoint
-		ReadCheckPointErr := P.ReadCheckpoint(file)
+		ReadCheckPointErr := parse.ReadCheckpoint(file)
 		if ReadCheckPointErr != nil {
 			return ReadCheckPointErr
 		}
@@ -148,7 +96,7 @@ func (P *ParseRedo) Parse(LogFileList []string) error {
 
 			// Parse the redo block header.
 			// The redo block consists of redo log header and redo log data.
-			DataLen, FirstRecord, ReadErr := P.ReadRedoBlockHeader(&pos, d)
+			DataLen, FirstRecord, ReadErr := parse.ReadRedoBlockHeader(&pos, d)
 			if ReadErr != nil || DataLen == 0 {
 				break
 			}
@@ -178,7 +126,7 @@ func (P *ParseRedo) Parse(LogFileList []string) error {
 	}
 
 	// Start parse redo log data.
-	ParseDataErr := P.ParseRedoBlockData(data)
+	ParseDataErr := parse.ParseRedoBlockData(data)
 	if ParseDataErr != nil {
 		logs.Debug("parse redo block data failed, the error is ", ParseDataErr)
 		return ParseDataErr
@@ -190,7 +138,7 @@ func (P *ParseRedo) Parse(LogFileList []string) error {
 // There are about 55 redo log type, and every redo log type have different data.
 // We just want get the MLOG_UNDO_INSERT type redo record which store the undo info.
 // But due to the design of redo, we must parse out each type in order.
-func (P *ParseRedo) ParseRedoBlockData(data []byte) error {
+func (parse *ParseRedo) ParseRedoBlockData(data []byte) error {
 	var pos uint64
 	for {
 		if (int64(len(data)) - int64(pos)) < 5 {
@@ -202,7 +150,7 @@ func (P *ParseRedo) ParseRedoBlockData(data []byte) error {
 
 		// Read initial log record.
 		LogType := utils.MatchReadFrom1(data[pos:])
-		pos += 1
+		pos++
 		StartPos := pos
 
 		if LogType == MLOG_MULTI_REC_END {
@@ -232,14 +180,14 @@ func (P *ParseRedo) ParseRedoBlockData(data []byte) error {
 				return err
 			}
 
-			if !P.ValidateLogHeader(LogType, SpaceID) {
+			if !parse.ValidateLogHeader(LogType, SpaceID) {
 				pos = StartPos
 				continue
 			}
 
 			logs.Debug("LogType is:", LogType, "SpaceID is:", SpaceID, "PageNo is:", PageNo)
 
-			Table, err := P.GetTableBySpaceID(SpaceID)
+			Table, err := parse.GetTableBySpaceID(SpaceID)
 			if err != nil {
 				logs.Error("can't find table, space id is ", SpaceID)
 			} else {
@@ -253,18 +201,18 @@ func (P *ParseRedo) ParseRedoBlockData(data []byte) error {
 
 		case MLOG_1BYTE, MLOG_2BYTES, MLOG_4BYTES, MLOG_8BYTES:
 			logs.Debug("start parse MLOG_1BYTE, MLOG_2BYTES, MLOG_4BYTES, MLOG_8BYTES log record")
-			err := P.MLOG_N_BYTES(data, &pos, LogType)
+			err := parse.MLOG_N_BYTES(data, &pos, LogType)
 			if err != nil {
 				break
 			}
 
 		case MLOG_REC_SEC_DELETE_MARK:
 			logs.Debug("start parse MLOG_REC_SEC_DELETE_MARK log record")
-			P.MLOG_REC_SEC_DELETE_MARK(data, &pos)
+			parse.MLOG_REC_SEC_DELETE_MARK(data, &pos)
 
 		case MLOG_UNDO_INSERT:
 			logs.Debug("start parse MLOG_UNDO_INSERT log record")
-			err := P.MLOG_UNDO_INSERT(data, &pos)
+			err := parse.MLOG_UNDO_INSERT(data, &pos)
 			if err != nil {
 				break
 			}
@@ -275,7 +223,7 @@ func (P *ParseRedo) ParseRedoBlockData(data []byte) error {
 
 		case MLOG_UNDO_INIT:
 			logs.Debug("start parse MLOG_UNDO_INIT log record")
-			err := P.MLOG_UNDO_INIT(data, &pos)
+			err := parse.MLOG_UNDO_INIT(data, &pos)
 			if err != nil {
 				break
 			}
@@ -285,11 +233,11 @@ func (P *ParseRedo) ParseRedoBlockData(data []byte) error {
 
 		case MLOG_UNDO_HDR_REUSE:
 			logs.Debug("start parse MLOG_UNDO_HDR_REUSE log record")
-			P.MLOG_UNDO_HDR_REUSE(data, &pos)
+			parse.MLOG_UNDO_HDR_REUSE(data, &pos)
 
 		case MLOG_UNDO_HDR_CREATE:
 			logs.Debug("start parse MLOG_UNDO_HDR_CREATE log record")
-			err := P.MLOG_UNDO_HDR_CREATE(data, &pos)
+			err := parse.MLOG_UNDO_HDR_CREATE(data, &pos)
 			if err != nil {
 				break
 			}
@@ -305,7 +253,7 @@ func (P *ParseRedo) ParseRedoBlockData(data []byte) error {
 
 		case MLOG_WRITE_STRING:
 			logs.Debug("start parse MLOG_WRITE_STRING log record")
-			P.MLOG_WRITE_STRING(data, &pos)
+			parse.MLOG_WRITE_STRING(data, &pos)
 
 		case MLOG_MULTI_REC_END:
 			logs.Debug("start parse MLOG_MULTI_REC_END log record")
@@ -316,11 +264,11 @@ func (P *ParseRedo) ParseRedoBlockData(data []byte) error {
 			continue
 
 		case MLOG_FILE_RENAME, MLOG_FILE_CREATE,
-			 MLOG_FILE_DELETE, MLOG_FILE_CREATE2,
-			 MLOG_FILE_RENAME2, MLOG_FILE_NAME:
+			MLOG_FILE_DELETE, MLOG_FILE_CREATE2,
+			MLOG_FILE_RENAME2, MLOG_FILE_NAME:
 			logs.Debug("start parse MLOG_FILE_RENAME, MLOG_FILE_CREATE, " +
 				"MLOG_FILE_DELETE, MLOG_FILE_CREATE2 log record")
-			P.MLOG_FILE_OP(data, &pos, LogType)
+			parse.MLOG_FILE_OP(data, &pos, LogType)
 
 		case MLOG_REC_MIN_MARK, MLOG_COMP_REC_MIN_MARK:
 			logs.Debug("start parse MLOG_REC_MIN_MARK, MLOG_COMP_REC_MIN_MARK log record")
@@ -332,35 +280,35 @@ func (P *ParseRedo) ParseRedoBlockData(data []byte) error {
 
 		case MLOG_REC_INSERT, MLOG_COMP_REC_INSERT:
 			logs.Debug("start parse MLOG_REC_INSERT, MLOG_COMP_REC_INSERT log record")
-			err := P.MLOG_REC_INSERT(data, &pos, LogType)
+			err := parse.MLOG_REC_INSERT(data, &pos, LogType)
 			if err != nil {
 				return err
 			}
 
 		case MLOG_REC_CLUST_DELETE_MARK, MLOG_COMP_REC_CLUST_DELETE_MARK:
 			logs.Debug("start parse MLOG_REC_CLUST_DELETE_MARK, MLOG_COMP_REC_CLUST_DELETE_MARK log record")
-			err := P.MLOG_REC_CLUST_DELETE_MARK(data, &pos, LogType)
+			err := parse.MLOG_REC_CLUST_DELETE_MARK(data, &pos, LogType)
 			if err != nil {
 				break
 			}
 
 		case MLOG_COMP_REC_SEC_DELETE_MARK:
 			logs.Debug("start parse MLOG_COMP_REC_SEC_DELETE_MARK log record")
-			err := P.MLOG_COMP_REC_SEC_DELETE_MARK(data, &pos)
+			err := parse.MLOG_COMP_REC_SEC_DELETE_MARK(data, &pos)
 			if err != nil {
 				break
 			}
 
 		case MLOG_REC_UPDATE_IN_PLACE, MLOG_COMP_REC_UPDATE_IN_PLACE:
 			logs.Debug("start parse MLOG_REC_UPDATE_IN_PLACE, MLOG_COMP_REC_UPDATE_IN_PLACE log record")
-			err := P.MLOG_REC_UPDATE_IN_PLACE(data, &pos, LogType)
+			err := parse.MLOG_REC_UPDATE_IN_PLACE(data, &pos, LogType)
 			if err != nil {
 				break
 			}
 
 		case MLOG_REC_DELETE, MLOG_COMP_REC_DELETE:
 			logs.Debug("start parse MLOG_REC_DELETE, MLOG_COMP_REC_DELETE log record")
-			err := P.MLOG_REC_DELETE(data, &pos, LogType)
+			err := parse.MLOG_REC_DELETE(data, &pos, LogType)
 			if err != nil {
 				break
 			}
@@ -371,14 +319,14 @@ func (P *ParseRedo) ParseRedoBlockData(data []byte) error {
 			MLOG_COMP_LIST_START_DELETE:
 			logs.Debug("start parse MLOG_LIST_END_DELETE,MLOG_COMP_LIST_END_DELETE," +
 				"MLOG_LIST_START_DELETE,MLOG_COMP_LIST_START_DELETE log record")
-			err := P.MLOG_LIST_DELETE(data, &pos, LogType)
+			err := parse.MLOG_LIST_DELETE(data, &pos, LogType)
 			if err != nil {
 				break
 			}
 
 		case MLOG_LIST_END_COPY_CREATED, MLOG_COMP_LIST_END_COPY_CREATED:
 			logs.Debug("start parse MLOG_LIST_END_COPY_CREATED, MLOG_COMP_LIST_END_COPY_CREATED log record")
-			err := P.MLOG_LIST_END_COPY_CREATED(data, &pos, LogType)
+			err := parse.MLOG_LIST_END_COPY_CREATED(data, &pos, LogType)
 			if err != nil {
 				break
 			}
@@ -386,14 +334,14 @@ func (P *ParseRedo) ParseRedoBlockData(data []byte) error {
 		case MLOG_PAGE_REORGANIZE, MLOG_COMP_PAGE_REORGANIZE, MLOG_ZIP_PAGE_REORGANIZE:
 			logs.Debug("start parse MLOG_PAGE_REORGANIZE, MLOG_COMP_PAGE_REORGANIZE, " +
 				"MLOG_ZIP_PAGE_REORGANIZE log record")
-			err := P.MLOG_PAGE_REORGANIZE(data, &pos, LogType)
+			err := parse.MLOG_PAGE_REORGANIZE(data, &pos, LogType)
 			if err != nil {
 				break
 			}
 
 		case MLOG_ZIP_WRITE_NODE_PTR:
 			logs.Debug("start parse MLOG_ZIP_WRITE_NODE_PTR log record")
-			P.MLOG_ZIP_WRITE_NODE_PTR(data, &pos)
+			parse.MLOG_ZIP_WRITE_NODE_PTR(data, &pos)
 
 		case MLOG_ZIP_WRITE_BLOB_PTR:
 			logs.Debug("start parse MLOG_ZIP_WRITE_BLOB_PTR log record")
@@ -401,15 +349,15 @@ func (P *ParseRedo) ParseRedoBlockData(data []byte) error {
 
 		case MLOG_ZIP_WRITE_HEADER:
 			logs.Debug("start parse MLOG_ZIP_WRITE_HEADER log record")
-			P.MLOG_ZIP_WRITE_HEADER(data, &pos)
+			parse.MLOG_ZIP_WRITE_HEADER(data, &pos)
 
 		case MLOG_ZIP_PAGE_COMPRESS:
 			logs.Debug("start parse MLOG_ZIP_PAGE_COMPRESS log record")
-			P.MLOG_ZIP_PAGE_COMPRESS(data, &pos)
+			parse.MLOG_ZIP_PAGE_COMPRESS(data, &pos)
 
 		case MLOG_ZIP_PAGE_COMPRESS_NO_DATA:
 			logs.Debug("start parse MLOG_ZIP_PAGE_COMPRESS_NO_DATA log record")
-			err := P.MLOG_ZIP_PAGE_COMPRESS_NO_DATA(data, &pos)
+			err := parse.MLOG_ZIP_PAGE_COMPRESS_NO_DATA(data, &pos)
 			if err != nil {
 				break
 			}
@@ -424,7 +372,7 @@ func (P *ParseRedo) ParseRedoBlockData(data []byte) error {
 			break
 		case MLOG_TRUNCATE:
 			logs.Debug("start prase MLOG_TRUNCATE")
-			pos+= 8
+			pos += 8
 			break
 		case MLOG_INDEX_LOAD:
 			logs.Debug("start prase MLOG_INDEX_LOAD")
@@ -439,7 +387,7 @@ func (P *ParseRedo) ParseRedoBlockData(data []byte) error {
 }
 
 // Parse the redo block header.
-func (P *ParseRedo) ReadRedoBlockHeader(pos *uint64, d []byte) (uint64, uint64, error) {
+func (parse *ParseRedo) ReadRedoBlockHeader(pos *uint64, d []byte) (uint64, uint64, error) {
 
 	LogBlockNo := utils.MatchReadFrom4(d)
 	*pos += 4
@@ -464,7 +412,7 @@ func (P *ParseRedo) ReadRedoBlockHeader(pos *uint64, d []byte) (uint64, uint64, 
 	return DataLen, FirstRecord, nil
 }
 
-func (P *ParseRedo) ReadHeader(file *os.File) error {
+func (parse *ParseRedo) ReadHeader(file *os.File) error {
 
 	pos := 0
 	data, err1 := utils.ReadNextBytes(file, 512)
@@ -482,7 +430,7 @@ func (P *ParseRedo) ReadHeader(file *os.File) error {
 	return nil
 }
 
-func (P *ParseRedo) ReadCheckpoint(file *os.File) error {
+func (parse *ParseRedo) ReadCheckpoint(file *os.File) error {
 
 	checkpoint := Checkpoint{}
 	const cpsize = 512
@@ -524,21 +472,7 @@ func (P *ParseRedo) ReadCheckpoint(file *os.File) error {
 	return nil
 }
 
-func NewParseRedo(IbFilePath string, TableName string, DBName string, ) (*ParseRedo, error) {
-	p := &ParseRedo{TableName:TableName, DBName:DBName}
-
-	// get data dict
-	I := ibdata.NewParseIB()
-	ParseDictErr := I.ParseDictPage(IbFilePath)
-	if ParseDictErr != nil {
-		return nil, ParseDictErr
-	}
-	p.TableMap = I.TableMap
-
-	return p, nil
-}
-
-func (P *ParseRedo) MLOG_N_BYTES(data []byte, pos *uint64, MyType uint64) error {
+func (parse *ParseRedo) MLOG_N_BYTES(data []byte, pos *uint64, MyType uint64) error {
 
 	offset := utils.MatchReadFrom2(data[*pos:])
 	logs.Debug("offset is", offset, "pos is ", *pos, " data len is ", len(data))
@@ -567,10 +501,10 @@ func (P *ParseRedo) MLOG_N_BYTES(data []byte, pos *uint64, MyType uint64) error 
 	return nil
 }
 
-func (P *ParseRedo) MLOG_REC_SEC_DELETE_MARK(data []byte, pos *uint64) {
+func (parse *ParseRedo) MLOG_REC_SEC_DELETE_MARK(data []byte, pos *uint64) {
 
 	value := utils.MatchReadFrom1(data[*pos:])
-	*pos += 1
+	*pos++
 
 	offset := utils.MatchReadFrom2(data[*pos:])
 	*pos += 2
@@ -578,7 +512,7 @@ func (P *ParseRedo) MLOG_REC_SEC_DELETE_MARK(data []byte, pos *uint64) {
 	logs.Debug("values is ", value, " offset is ", offset)
 }
 
-func (P *ParseRedo) GetPrimaryKey(Table ibdata.Tables) ([]*ibdata.Fields, error) {
+func (parse *ParseRedo) GetPrimaryKey(Table ibdata.Tables) ([]*ibdata.Fields, error) {
 
 	var fields []*ibdata.Fields
 
@@ -594,7 +528,7 @@ func (P *ParseRedo) GetPrimaryKey(Table ibdata.Tables) ([]*ibdata.Fields, error)
 	return fields, nil
 }
 
-func (P *ParseRedo) GetColumnsByName(table ibdata.Tables, FieldName string) ibdata.Columns {
+func (parse *ParseRedo) GetColumnsByName(table ibdata.Tables, FieldName string) ibdata.Columns {
 	for _, c := range table.Columns {
 		if c.FieldName == FieldName {
 			return c
@@ -603,7 +537,7 @@ func (P *ParseRedo) GetColumnsByName(table ibdata.Tables, FieldName string) ibda
 	return ibdata.Columns{}
 }
 
-func (P *ParseRedo) GetColumnByPos(Table ibdata.Tables, Pos uint64) (*ibdata.Columns, error) {
+func (parse *ParseRedo) GetColumnByPos(Table ibdata.Tables, Pos uint64) (*ibdata.Columns, error) {
 	for i, c := range Table.Columns {
 		if uint64(i) == Pos {
 			return &c, nil
@@ -613,8 +547,8 @@ func (P *ParseRedo) GetColumnByPos(Table ibdata.Tables, Pos uint64) (*ibdata.Col
 	return &ibdata.Columns{}, fmt.Errorf("field not found")
 }
 
-func (P *ParseRedo) GetTableByTableID(TableID uint64) (ibdata.Tables, error) {
-	v, ok := P.TableMap[TableID]
+func (parse *ParseRedo) GetTableByTableID(TableID uint64) (ibdata.Tables, error) {
+	v, ok := parse.TableMap[TableID]
 	if ok {
 		t := v
 		return t, nil
@@ -625,8 +559,8 @@ func (P *ParseRedo) GetTableByTableID(TableID uint64) (ibdata.Tables, error) {
 	}
 }
 
-func (P *ParseRedo) GetTableBySpaceID(SpaceID uint64) (ibdata.Tables, error) {
-	for _, table := range P.TableMap {
+func (parse *ParseRedo) GetTableBySpaceID(SpaceID uint64) (ibdata.Tables, error) {
+	for _, table := range parse.TableMap {
 		if table.SpaceId == SpaceID {
 			return table, nil
 		}
@@ -634,7 +568,7 @@ func (P *ParseRedo) GetTableBySpaceID(SpaceID uint64) (ibdata.Tables, error) {
 	return ibdata.Tables{}, fmt.Errorf("can't find table")
 }
 
-func (P *ParseRedo) MakeSQL(table ibdata.Tables, PrimaryColumns []*ibdata.Fields, columns []*ibdata.Columns) {
+func (parse *ParseRedo) MakeSQL(table ibdata.Tables, PrimaryColumns []*ibdata.Fields, columns []*ibdata.Columns) {
 
 	// TODO: deal with null value.
 
@@ -669,11 +603,11 @@ func (P *ParseRedo) MakeSQL(table ibdata.Tables, PrimaryColumns []*ibdata.Fields
 		table.TableName, SetValues, WhereConditions)
 
 	logs.Debug("query is ", Query)
-	fmt.Println( Query)
+	fmt.Println(Query)
 }
 
 // Parse the undo record.
-func (P *ParseRedo) MLOG_UNDO_INSERT (data []byte, pos *uint64) error {
+func (parse *ParseRedo) MLOG_UNDO_INSERT(data []byte, pos *uint64) error {
 
 	DataLen := utils.MatchReadFrom2(data[*pos:])
 	*pos += 2
@@ -726,20 +660,20 @@ func (P *ParseRedo) MLOG_UNDO_INSERT (data []byte, pos *uint64) error {
 		logs.Debug("RollPtr is ", RollPtr)
 	}
 
-	Table, err := P.GetTableByTableID(TableId)
+	Table, err := parse.GetTableByTableID(TableId)
 	if err != nil {
 		*pos = StartPos + DataLen
 		return err
 	}
 
-	PrimaryFields, err := P.GetPrimaryKey(Table)
+	PrimaryFields, err := parse.GetPrimaryKey(Table)
 	if err != nil {
 		*pos = StartPos + DataLen
 		return err
 	}
 
 	for _, v := range PrimaryFields {
-		Column := P.GetColumnsByName(Table, v.ColumnName)
+		Column := parse.GetColumnsByName(Table, v.ColumnName)
 		// get the unique key.
 		FiledLen, num, err := utils.MatchParseCompressed(data, *pos)
 		if err != nil {
@@ -785,7 +719,7 @@ func (P *ParseRedo) MLOG_UNDO_INSERT (data []byte, pos *uint64) error {
 			logs.Debug("Pos is ", Pos, " num is ", num)
 			*pos += num
 
-			c, err := P.GetColumnByPos(Table, Pos)
+			c, err := parse.GetColumnByPos(Table, Pos)
 			if err != nil {
 				return err
 			}
@@ -817,16 +751,16 @@ func (P *ParseRedo) MLOG_UNDO_INSERT (data []byte, pos *uint64) error {
 		// Make data to sql statement, only for update statement.
 		// Print sql statement when user identify the table name or the database name,
 		// if user don't identify table and database name, print all sql statement.
-		if Table.DBName == P.DBName {
-			if Table.TableName == P.TableName {
-				P.MakeSQL(Table, PrimaryFields, columns)
-			} else if P.TableName == "" {
-				P.MakeSQL(Table, PrimaryFields, columns)
+		if Table.DBName == parse.DBName {
+			if Table.TableName == parse.TableName {
+				parse.MakeSQL(Table, PrimaryFields, columns)
+			} else if parse.TableName == "" {
+				parse.MakeSQL(Table, PrimaryFields, columns)
 			}
-		} else if P.DBName == "" && P.TableName == "" {
-			P.MakeSQL(Table, PrimaryFields, columns)
-		} else if P.TableName != "" && P.TableName == Table.TableName {
-			P.MakeSQL(Table, PrimaryFields, columns)
+		} else if parse.DBName == "" && parse.TableName == "" {
+			parse.MakeSQL(Table, PrimaryFields, columns)
+		} else if parse.TableName != "" && parse.TableName == Table.TableName {
+			parse.MakeSQL(Table, PrimaryFields, columns)
 		}
 	}
 
@@ -872,7 +806,7 @@ func (P *ParseRedo) MLOG_UNDO_INSERT (data []byte, pos *uint64) error {
 	return nil
 }
 
-func (P *ParseRedo) MLOG_UNDO_INIT(data []byte, pos *uint64) error {
+func (parse *ParseRedo) MLOG_UNDO_INIT(data []byte, pos *uint64) error {
 	_, num, err := utils.MatchParseCompressed(data, *pos)
 	if err != nil {
 		return err
@@ -882,11 +816,11 @@ func (P *ParseRedo) MLOG_UNDO_INIT(data []byte, pos *uint64) error {
 	return nil
 }
 
-func (P *ParseRedo) MLOG_UNDO_HDR_REUSE(data []byte, pos *uint64) {
+func (parse *ParseRedo) MLOG_UNDO_HDR_REUSE(data []byte, pos *uint64) {
 	utils.MatchUllReadComPressed(data, pos)
 }
 
-func (P *ParseRedo) MLOG_UNDO_HDR_CREATE(data []byte, pos *uint64) error {
+func (parse *ParseRedo) MLOG_UNDO_HDR_CREATE(data []byte, pos *uint64) error {
 	value, _, err := utils.MatchParseCompressed(data, *pos)
 	if err != nil {
 		logs.Error("parse MLOG_UNDO_HDR_CREATE failed, the error is ", err.Error())
@@ -897,13 +831,13 @@ func (P *ParseRedo) MLOG_UNDO_HDR_CREATE(data []byte, pos *uint64) error {
 		return err
 	}
 
-	*pos += size;
+	*pos += size
 	*pos += 4
 
 	return nil
 }
 
-func (P *ParseRedo) MLOG_WRITE_STRING(data []byte, pos *uint64) {
+func (parse *ParseRedo) MLOG_WRITE_STRING(data []byte, pos *uint64) {
 
 	// Parses a log record written by mlog_write_string
 	offset := utils.MatchReadFrom2(data[*pos:])
@@ -915,7 +849,7 @@ func (P *ParseRedo) MLOG_WRITE_STRING(data []byte, pos *uint64) {
 
 }
 
-func (P *ParseRedo) MLOG_FILE_OP(data []byte, pos *uint64, MyType uint64) {
+func (parse *ParseRedo) MLOG_FILE_OP(data []byte, pos *uint64, MyType uint64) {
 
 	if MyType == MLOG_FILE_CREATE2 {
 		flags := utils.MatchReadFrom4(data[*pos:])
@@ -929,11 +863,11 @@ func (P *ParseRedo) MLOG_FILE_OP(data []byte, pos *uint64, MyType uint64) {
 
 }
 
-func (P *ParseRedo) MLOG_REC_MARK(data []byte, pos uint64) {
+func (parse *ParseRedo) MLOG_REC_MARK(data []byte, pos uint64) {
 	pos += 2
 }
 
-func (P *ParseRedo) MLOG_REC_INSERT(data []byte, pos *uint64, mytype uint64) error {
+func (parse *ParseRedo) MLOG_REC_INSERT(data []byte, pos *uint64, mytype uint64) error {
 	Pos, err := utils.ParseIndex(mytype == MLOG_COMP_REC_INSERT, data, *pos)
 	if err != nil {
 		return err
@@ -953,7 +887,7 @@ func (P *ParseRedo) MLOG_REC_INSERT(data []byte, pos *uint64, mytype uint64) err
 	return nil
 }
 
-func (P *ParseRedo) MLOG_REC_CLUST_DELETE_MARK(data []byte, pos *uint64, mytype uint64) error {
+func (parse *ParseRedo) MLOG_REC_CLUST_DELETE_MARK(data []byte, pos *uint64, mytype uint64) error {
 
 	Pos, err := utils.ParseIndex(mytype == MLOG_COMP_REC_CLUST_DELETE_MARK, data, *pos)
 	if err != nil {
@@ -995,7 +929,7 @@ func (P *ParseRedo) MLOG_REC_CLUST_DELETE_MARK(data []byte, pos *uint64, mytype 
 	return nil
 }
 
-func (P *ParseRedo) MLOG_COMP_REC_SEC_DELETE_MARK(data []byte, pos *uint64) error {
+func (parse *ParseRedo) MLOG_COMP_REC_SEC_DELETE_MARK(data []byte, pos *uint64) error {
 	Pos, err := utils.ParseIndex(true, data, *pos)
 	if err != nil {
 		return err
@@ -1005,7 +939,7 @@ func (P *ParseRedo) MLOG_COMP_REC_SEC_DELETE_MARK(data []byte, pos *uint64) erro
 	return nil
 }
 
-func (P *ParseRedo) MLOG_REC_UPDATE_IN_PLACE(data []byte, pos *uint64, MyType uint64) error {
+func (parse *ParseRedo) MLOG_REC_UPDATE_IN_PLACE(data []byte, pos *uint64, MyType uint64) error {
 
 	// Catch panic
 	defer func() {
@@ -1081,7 +1015,7 @@ func (P *ParseRedo) MLOG_REC_UPDATE_IN_PLACE(data []byte, pos *uint64, MyType ui
 	return nil
 }
 
-func (P *ParseRedo) MLOG_REC_DELETE(data []byte, pos *uint64, MyType uint64) error {
+func (parse *ParseRedo) MLOG_REC_DELETE(data []byte, pos *uint64, MyType uint64) error {
 	Pos, err := utils.ParseIndex(MyType == MLOG_COMP_REC_DELETE, data, *pos)
 	if err != nil {
 		return err
@@ -1099,7 +1033,7 @@ func (P *ParseRedo) MLOG_REC_DELETE(data []byte, pos *uint64, MyType uint64) err
 	return nil
 }
 
-func (P *ParseRedo) MLOG_LIST_DELETE(data []byte, pos *uint64, MyType uint64) error {
+func (parse *ParseRedo) MLOG_LIST_DELETE(data []byte, pos *uint64, MyType uint64) error {
 	Pos, err := utils.ParseIndex(MyType == MLOG_COMP_LIST_START_DELETE ||
 		MyType == MLOG_COMP_LIST_END_DELETE, data, *pos)
 	if err != nil {
@@ -1118,7 +1052,7 @@ func (P *ParseRedo) MLOG_LIST_DELETE(data []byte, pos *uint64, MyType uint64) er
 	return nil
 }
 
-func (P *ParseRedo) MLOG_LIST_END_COPY_CREATED(data []byte, pos *uint64, MyType uint64) error {
+func (parse *ParseRedo) MLOG_LIST_END_COPY_CREATED(data []byte, pos *uint64, MyType uint64) error {
 
 	Pos, err := utils.ParseIndex(MyType == MLOG_COMP_LIST_END_COPY_CREATED, data, *pos)
 	if err != nil {
@@ -1163,7 +1097,7 @@ func (P *ParseRedo) MLOG_LIST_END_COPY_CREATED(data []byte, pos *uint64, MyType 
 	return nil
 }
 
-func (P *ParseRedo) MLOG_PAGE_REORGANIZE(data []byte, pos *uint64, MyType uint64) error {
+func (parse *ParseRedo) MLOG_PAGE_REORGANIZE(data []byte, pos *uint64, MyType uint64) error {
 
 	Pos, err := utils.ParseIndex(MyType != MLOG_PAGE_REORGANIZE, data, *pos)
 	if err != nil {
@@ -1173,14 +1107,14 @@ func (P *ParseRedo) MLOG_PAGE_REORGANIZE(data []byte, pos *uint64, MyType uint64
 
 		if MyType == MLOG_ZIP_PAGE_REORGANIZE {
 			level := utils.MatchReadFrom1(data[*pos:])
-			*pos += 1
+			*pos++
 			logs.Debug("level is ", level)
 		}
 	}
 	return nil
 }
 
-func (P *ParseRedo) MLOG_ZIP_WRITE_NODE_PTR(data []byte, pos *uint64) {
+func (parse *ParseRedo) MLOG_ZIP_WRITE_NODE_PTR(data []byte, pos *uint64) {
 
 	// TODO: confirm.
 
@@ -1195,11 +1129,11 @@ func (P *ParseRedo) MLOG_ZIP_WRITE_NODE_PTR(data []byte, pos *uint64) {
 	*pos += 4
 }
 
-func (P *ParseRedo) MLOG_ZIP_WRITE_BLOB_PTR(data []byte, pos uint64) {
+func (parse *ParseRedo) MLOG_ZIP_WRITE_BLOB_PTR(data []byte, pos uint64) {
 	pos += 24
 }
 
-func (P *ParseRedo) MLOG_ZIP_WRITE_HEADER(data []byte, pos *uint64) {
+func (parse *ParseRedo) MLOG_ZIP_WRITE_HEADER(data []byte, pos *uint64) {
 	// TODO: confirm.
 
 	offset := uint64(data[*pos:][0])
@@ -1212,17 +1146,17 @@ func (P *ParseRedo) MLOG_ZIP_WRITE_HEADER(data []byte, pos *uint64) {
 	*pos += DataLen
 }
 
-func (P *ParseRedo) MLOG_ZIP_PAGE_COMPRESS(data []byte, pos *uint64) {
-	size := utils.MatchReadFrom2(data[*pos:]);
+func (parse *ParseRedo) MLOG_ZIP_PAGE_COMPRESS(data []byte, pos *uint64) {
+	size := utils.MatchReadFrom2(data[*pos:])
 	*pos += 2
-	TrailerSize := utils.MatchReadFrom2(data[*pos:]);
+	TrailerSize := utils.MatchReadFrom2(data[*pos:])
 	*pos += 2
 	*pos += 8 + size + TrailerSize
 
 	logs.Debug("size is:", size, "TrailerSize is :", TrailerSize)
 }
 
-func (P *ParseRedo) MLOG_ZIP_PAGE_COMPRESS_NO_DATA(data []byte, pos *uint64) error {
+func (parse *ParseRedo) MLOG_ZIP_PAGE_COMPRESS_NO_DATA(data []byte, pos *uint64) error {
 	// TODO: confirm.
 
 	Pos, err := utils.ParseIndex(true, data, *pos)
@@ -1237,9 +1171,9 @@ func (P *ParseRedo) MLOG_ZIP_PAGE_COMPRESS_NO_DATA(data []byte, pos *uint64) err
 	return nil
 }
 
-func (P *ParseRedo) ValidateLogHeader(LogType uint64, SpaceID uint64) bool {
+func (parse *ParseRedo) ValidateLogHeader(LogType uint64, SpaceID uint64) bool {
 
-	HaveType := true;
+	HaveType := true
 
 	switch LogType {
 
@@ -1311,10 +1245,10 @@ func (P *ParseRedo) ValidateLogHeader(LogType uint64, SpaceID uint64) bool {
 		break
 	}
 
-	//_, err := P.GetTableBySpaceID(SpaceID)
+	//_, err := parse.GetTableBySpaceID(SpaceID)
 	//if err != nil || !HaveType {
 	//	return false
 	//}
 
-	return HaveType;
+	return HaveType
 }

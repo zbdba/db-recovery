@@ -18,7 +18,6 @@ package ibdata
 // if not set use to the default page size.
 const DefaultPageSize int = 16384
 
-
 // mysql-5.7.19/storage/innobase/include/fil0fil.h
 // #define FIL_PAGE_INDEX		17855	/*!< B-tree node */
 const FilPageIndex uint64 = 17855
@@ -26,9 +25,9 @@ const FilPageIndex uint64 = 17855
 // The root page number of the data dictionary.
 // Use it can find the sys tables index root page.
 const (
-	SystemPageIdx uint64 = 7
 	SysTablesIdx  uint64 = 1
 	SysColumnsIdx uint64 = 2
 	SysIndexesIdx uint64 = 3
 	SysFieldsIdx  uint64 = 4
+	SystemPageIdx uint64 = 7
 )
