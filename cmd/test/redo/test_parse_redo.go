@@ -32,9 +32,9 @@ func main() {
 		fmt.Println(InitErr)
 	}
 
-	p, err := redo.NewParseRedo("/data/mysql3322/data/ibdata1", "", "")
-	//p, err := redo.NewParseRedo("/root/recovery/ibdata1")
-	//p, err := redo.NewParseRedo("/root/online_data_test/2020-01-16-23/ibdata1")
+	p, err := redo.NewParse("/data/mysql3322/data/ibdata1", "", "")
+	//p, err := redo.NewParse("/root/recovery/ibdata1")
+	//p, err := redo.NewParse("/root/online_data_test/2020-01-16-23/ibdata1")
 
 	if err != nil {
 		fmt.Println(err)

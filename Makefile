@@ -15,11 +15,12 @@ DOCKER_VOLUME=$(shell docker inspect recovery-mysql | jq -r '.[] | .Mounts | .[]
 
 all: build
 
-build: db-recovery
+build: fmt db-recovery
 
 .PHONY:db-recovery
 db-recovery:
 	@mkdir -p bin
+	@echo "go build ./..."
 	@ret=0 && for d in $$(go list -f '{{if (eq .Name "main")}}{{.ImportPath}}{{end}}' ./... | grep -v test); do \
 		b=$$(basename $${d}) ; \
 		go build -ldflags ${GO_LDFLAGS} -o bin/$${b} $$d || ret=$$? ; \

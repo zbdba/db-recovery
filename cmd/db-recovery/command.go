@@ -64,7 +64,7 @@ func NewRootCommand(use, short string) *cobra.Command {
 
 func NewRecoveryCommand() *cobra.Command {
 	jc := &cobra.Command{
-		Use:   "recovery <subcommand>",
+		Use:   "recovery <sub command>",
 		Short: "recovery related commands",
 	}
 	jc.AddCommand(NewFromDataFileCommand())
@@ -97,28 +97,29 @@ func FromDataFile(cmd *cobra.Command, args []string) {
 
 	// init logger
 	flag.Parse()
-	InitErr := logs.InitLogs(LogPath, LogLevel)
-	if InitErr != nil {
-		fmt.Println(InitErr.Error())
+	err := logs.InitLogs(LogPath, LogLevel)
+	if err != nil {
+		fmt.Println(err.Error())
 		return
 	}
 
-	IsRecovery := false
+	isRecovery := false
 
 	p := ibdata.NewParse()
-	err := p.ParseDictPage(SysDataFile)
+	err = p.ParseDictPage(SysDataFile)
 	if err != nil {
 		fmt.Println(err.Error())
 		return
 	}
 
 	if OpType == "RecoveryData" {
-		IsRecovery = true
+		isRecovery = true
 	}
 
-	RecoveryErr := p.ParseTableData(TableFile, DBName, TableName, IsRecovery)
-	if RecoveryErr != nil {
-		fmt.Println(RecoveryErr)
+	err = p.ParseDataPage(TableFile, DBName, TableName, isRecovery)
+	if err != nil {
+		fmt.Println(err)
+		return
 	}
 
 	// flush logs
@@ -149,24 +150,22 @@ func FromRedoFile(cmd *cobra.Command, args []string) {
 
 	// init logger
 	flag.Parse()
-	InitErr := logs.InitLogs(LogPath, LogLevel)
-	if InitErr != nil {
-		fmt.Println(InitErr.Error())
-		return
-	}
-
-	p, err := redo.NewParseRedo(SysDataFile, TableName, DBName)
-
+	err := logs.InitLogs(LogPath, LogLevel)
 	if err != nil {
-		logs.Error("parse redo failed, the error is ", err.Error())
+		fmt.Println(err.Error())
 		return
 	}
 
-	LogFileList := strings.Split(RedoFile, ",")
-	ParseErr := p.Parse(LogFileList)
+	p, err := redo.NewParse(SysDataFile, TableName, DBName)
+	if err != nil {
+		logs.Error("parse redo failed, error: ", err.Error())
+		return
+	}
 
-	if ParseErr != nil {
-		fmt.Println("parse redo failed, the error is ", ParseErr.Error())
+	err = p.Parse(strings.Split(RedoFile, ","))
+	if err != nil {
+		fmt.Println("parse redo failed, error: ", err.Error())
+		return
 	}
 
 	// flush logs

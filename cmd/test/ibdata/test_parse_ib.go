@@ -61,15 +61,15 @@ func main() {
 	//	}
 	//}
 
-	RecoveryErr := p.ParseTableData("/data/mysql3322/data/type_test/test_int.ibd",
+	RecoveryErr := p.ParseDataPage("/data/mysql3322/data/type_test/test_int.ibd",
 		"type_test", "test_int", false)
-	//RecoveryErr = p.ParseTableData("/data/mysql3322/data/type_test/test_float.ibd",
+	//RecoveryErr = p.ParseDataPage("/data/mysql3322/data/type_test/test_float.ibd",
 	//	"type_test", "test_float", false)
-	//RecoveryErr = p.ParseTableData("/data/mysql3322/data/type_test/test_date.ibd",
+	//RecoveryErr = p.ParseDataPage("/data/mysql3322/data/type_test/test_date.ibd",
 	//	"type_test", "test_date", false)
-	//RecoveryErr = p.ParseTableData("/data/mysql3322/data/type_test/test_string.ibd",
+	//RecoveryErr = p.ParseDataPage("/data/mysql3322/data/type_test/test_string.ibd",
 	//	"type_test", "test_string", false)
-	//RecoveryErr := p.ParseTableData("/root/recovery/xuser_newsession.ibd",
+	//RecoveryErr := p.ParseDataPage("/root/recovery/xuser_newsession.ibd",
 	//	"userSession", "xuser_newsession", true)
 	//RecoveryErr := p.RecoveryDeleteData("/root/online_data_test/2020-01-02-15/ks3report/user_data_report.ibd",
 	//	"ks3report", "user_data_report")

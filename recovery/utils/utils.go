@@ -259,14 +259,15 @@ func MatchReadFrom8(b []byte) uint64 {
 	return ull
 }
 
-// PageHeaderGetField ...
-func PageHeaderGetField(b []byte, field uint64) uint64 {
+// pageHeaderGetField ...
+func pageHeaderGetField(b []byte, field uint64) uint64 {
 	return MatchReadFrom2(b[38+field:])
 }
 
-// PageIsComp ...
-func PageIsComp(b []byte) uint64 {
-	return PageHeaderGetField(b, 4) & 0x8000
+// PageIsCompact ...
+// reference: https://dev.mysql.com/doc/refman/8.0/en/innodb-row-format.html
+func PageIsCompact(b []byte) uint64 {
+	return pageHeaderGetField(b, 4) & 0x8000
 }
 
 // MatchParseCompressed ...

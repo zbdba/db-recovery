@@ -25,7 +25,7 @@ import (
 	"github.com/zbdba/db-recovery/recovery/utils"
 )
 
-type ParseRedo struct {
+type Parse struct {
 	// Store table info.
 	TableMap map[uint64]ibdata.Tables
 
@@ -36,16 +36,16 @@ type ParseRedo struct {
 	DBName string
 }
 
-func NewParseRedo(IbFilePath string, TableName string, DBName string) (*ParseRedo, error) {
-	p := &ParseRedo{TableName: TableName, DBName: DBName}
+func NewParse(ibFilePath string, tableName string, dbName string) (*Parse, error) {
+	p := &Parse{TableName: tableName, DBName: dbName}
 
 	// get data dict
-	I := ibdata.NewParse()
-	ParseDictErr := I.ParseDictPage(IbFilePath)
+	i := ibdata.NewParse()
+	ParseDictErr := i.ParseDictPage(ibFilePath)
 	if ParseDictErr != nil {
 		return nil, ParseDictErr
 	}
-	p.TableMap = I.TableMap
+	p.TableMap = i.TableMap
 
 	return p, nil
 }
@@ -58,9 +58,9 @@ func NewParseRedo(IbFilePath string, TableName string, DBName string) (*ParseRed
 // 4.redo block
 // And every parts is 512 bytes, there will be many
 // redo blocks which store the redo record.
-func (parse *ParseRedo) Parse(LogFileList []string) error {
+func (parse *Parse) Parse(logFileList []string) error {
 	var data []byte
-	for _, LogFile := range LogFileList {
+	for _, LogFile := range logFileList {
 		file, err := os.Open(LogFile)
 		if err != nil {
 			logs.Error("Error while opening file, the error is ", err)
@@ -137,7 +137,7 @@ func (parse *ParseRedo) Parse(LogFileList []string) error {
 // There are about 55 redo log type, and every redo log type have different data.
 // We just want get the MLOG_UNDO_INSERT type redo record which store the undo info.
 // But due to the design of redo, we must parse out each type in order.
-func (parse *ParseRedo) ParseRedoBlockData(data []byte) error {
+func (parse *Parse) ParseRedoBlockData(data []byte) error {
 	var pos uint64
 	for {
 		if (int64(len(data)) - int64(pos)) < 5 {
@@ -386,7 +386,7 @@ func (parse *ParseRedo) ParseRedoBlockData(data []byte) error {
 }
 
 // Parse the redo block header.
-func (parse *ParseRedo) ReadRedoBlockHeader(pos *uint64, d []byte) (uint64, uint64, error) {
+func (parse *Parse) ReadRedoBlockHeader(pos *uint64, d []byte) (uint64, uint64, error) {
 
 	LogBlockNo := utils.MatchReadFrom4(d)
 	*pos += 4
@@ -411,7 +411,7 @@ func (parse *ParseRedo) ReadRedoBlockHeader(pos *uint64, d []byte) (uint64, uint
 	return DataLen, FirstRecord, nil
 }
 
-func (parse *ParseRedo) ReadHeader(file *os.File) error {
+func (parse *Parse) ReadHeader(file *os.File) error {
 
 	pos := 0
 	data, err1 := utils.ReadNextBytes(file, 512)
@@ -429,7 +429,7 @@ func (parse *ParseRedo) ReadHeader(file *os.File) error {
 	return nil
 }
 
-func (parse *ParseRedo) ReadCheckpoint(file *os.File) error {
+func (parse *Parse) ReadCheckpoint(file *os.File) error {
 
 	checkpoint := Checkpoint{}
 	const cpsize = 512
@@ -471,7 +471,7 @@ func (parse *ParseRedo) ReadCheckpoint(file *os.File) error {
 	return nil
 }
 
-func (parse *ParseRedo) MLOG_N_BYTES(data []byte, pos *uint64, MyType uint64) error {
+func (parse *Parse) MLOG_N_BYTES(data []byte, pos *uint64, MyType uint64) error {
 
 	offset := utils.MatchReadFrom2(data[*pos:])
 	logs.Debug("offset is", offset, "pos is ", *pos, " data len is ", len(data))
@@ -500,7 +500,7 @@ func (parse *ParseRedo) MLOG_N_BYTES(data []byte, pos *uint64, MyType uint64) er
 	return nil
 }
 
-func (parse *ParseRedo) MLOG_REC_SEC_DELETE_MARK(data []byte, pos *uint64) {
+func (parse *Parse) MLOG_REC_SEC_DELETE_MARK(data []byte, pos *uint64) {
 
 	value := utils.MatchReadFrom1(data[*pos:])
 	*pos++
@@ -511,7 +511,7 @@ func (parse *ParseRedo) MLOG_REC_SEC_DELETE_MARK(data []byte, pos *uint64) {
 	logs.Debug("values is ", value, " offset is ", offset)
 }
 
-func (parse *ParseRedo) GetPrimaryKey(Table ibdata.Tables) ([]*ibdata.Fields, error) {
+func (parse *Parse) GetPrimaryKey(Table ibdata.Tables) ([]*ibdata.Fields, error) {
 
 	var fields []*ibdata.Fields
 
@@ -527,7 +527,7 @@ func (parse *ParseRedo) GetPrimaryKey(Table ibdata.Tables) ([]*ibdata.Fields, er
 	return fields, nil
 }
 
-func (parse *ParseRedo) GetColumnsByName(table ibdata.Tables, FieldName string) ibdata.Columns {
+func (parse *Parse) GetColumnsByName(table ibdata.Tables, FieldName string) ibdata.Columns {
 	for _, c := range table.Columns {
 		if c.FieldName == FieldName {
 			return c
@@ -536,7 +536,7 @@ func (parse *ParseRedo) GetColumnsByName(table ibdata.Tables, FieldName string) 
 	return ibdata.Columns{}
 }
 
-func (parse *ParseRedo) GetColumnByPos(Table ibdata.Tables, Pos uint64) (*ibdata.Columns, error) {
+func (parse *Parse) GetColumnByPos(Table ibdata.Tables, Pos uint64) (*ibdata.Columns, error) {
 	for i, c := range Table.Columns {
 		if uint64(i) == Pos {
 			return &c, nil
@@ -546,7 +546,7 @@ func (parse *ParseRedo) GetColumnByPos(Table ibdata.Tables, Pos uint64) (*ibdata
 	return &ibdata.Columns{}, fmt.Errorf("field not found")
 }
 
-func (parse *ParseRedo) GetTableByTableID(TableID uint64) (ibdata.Tables, error) {
+func (parse *Parse) GetTableByTableID(TableID uint64) (ibdata.Tables, error) {
 	v, ok := parse.TableMap[TableID]
 	if ok {
 		t := v
@@ -558,7 +558,7 @@ func (parse *ParseRedo) GetTableByTableID(TableID uint64) (ibdata.Tables, error)
 	}
 }
 
-func (parse *ParseRedo) GetTableBySpaceID(SpaceID uint64) (ibdata.Tables, error) {
+func (parse *Parse) GetTableBySpaceID(SpaceID uint64) (ibdata.Tables, error) {
 	for _, table := range parse.TableMap {
 		if table.SpaceId == SpaceID {
 			return table, nil
@@ -567,7 +567,7 @@ func (parse *ParseRedo) GetTableBySpaceID(SpaceID uint64) (ibdata.Tables, error)
 	return ibdata.Tables{}, fmt.Errorf("can't find table")
 }
 
-func (parse *ParseRedo) MakeSQL(table ibdata.Tables, PrimaryColumns []*ibdata.Fields, columns []*ibdata.Columns) {
+func (parse *Parse) MakeSQL(table ibdata.Tables, PrimaryColumns []*ibdata.Fields, columns []*ibdata.Columns) {
 
 	// TODO: deal with null value.
 
@@ -606,7 +606,7 @@ func (parse *ParseRedo) MakeSQL(table ibdata.Tables, PrimaryColumns []*ibdata.Fi
 }
 
 // Parse the undo record.
-func (parse *ParseRedo) MLOG_UNDO_INSERT(data []byte, pos *uint64) error {
+func (parse *Parse) MLOG_UNDO_INSERT(data []byte, pos *uint64) error {
 
 	DataLen := utils.MatchReadFrom2(data[*pos:])
 	*pos += 2
@@ -805,7 +805,7 @@ func (parse *ParseRedo) MLOG_UNDO_INSERT(data []byte, pos *uint64) error {
 	return nil
 }
 
-func (parse *ParseRedo) MLOG_UNDO_INIT(data []byte, pos *uint64) error {
+func (parse *Parse) MLOG_UNDO_INIT(data []byte, pos *uint64) error {
 	_, num, err := utils.MatchParseCompressed(data, *pos)
 	if err != nil {
 		return err
@@ -815,11 +815,11 @@ func (parse *ParseRedo) MLOG_UNDO_INIT(data []byte, pos *uint64) error {
 	return nil
 }
 
-func (parse *ParseRedo) MLOG_UNDO_HDR_REUSE(data []byte, pos *uint64) {
+func (parse *Parse) MLOG_UNDO_HDR_REUSE(data []byte, pos *uint64) {
 	utils.MatchUllReadComPressed(data, pos)
 }
 
-func (parse *ParseRedo) MLOG_UNDO_HDR_CREATE(data []byte, pos *uint64) error {
+func (parse *Parse) MLOG_UNDO_HDR_CREATE(data []byte, pos *uint64) error {
 	value, _, err := utils.MatchParseCompressed(data, *pos)
 	if err != nil {
 		logs.Error("parse MLOG_UNDO_HDR_CREATE failed, the error is ", err.Error())
@@ -836,7 +836,7 @@ func (parse *ParseRedo) MLOG_UNDO_HDR_CREATE(data []byte, pos *uint64) error {
 	return nil
 }
 
-func (parse *ParseRedo) MLOG_WRITE_STRING(data []byte, pos *uint64) {
+func (parse *Parse) MLOG_WRITE_STRING(data []byte, pos *uint64) {
 
 	// Parses a log record written by mlog_write_string
 	offset := utils.MatchReadFrom2(data[*pos:])
@@ -848,7 +848,7 @@ func (parse *ParseRedo) MLOG_WRITE_STRING(data []byte, pos *uint64) {
 
 }
 
-func (parse *ParseRedo) MLOG_FILE_OP(data []byte, pos *uint64, MyType uint64) {
+func (parse *Parse) MLOG_FILE_OP(data []byte, pos *uint64, MyType uint64) {
 
 	if MyType == MLOG_FILE_CREATE2 {
 		flags := utils.MatchReadFrom4(data[*pos:])
@@ -862,11 +862,11 @@ func (parse *ParseRedo) MLOG_FILE_OP(data []byte, pos *uint64, MyType uint64) {
 
 }
 
-func (parse *ParseRedo) MLOG_REC_MARK(data []byte, pos uint64) {
+func (parse *Parse) MLOG_REC_MARK(data []byte, pos uint64) {
 	pos += 2
 }
 
-func (parse *ParseRedo) MLOG_REC_INSERT(data []byte, pos *uint64, mytype uint64) error {
+func (parse *Parse) MLOG_REC_INSERT(data []byte, pos *uint64, mytype uint64) error {
 	Pos, err := utils.ParseIndex(mytype == MLOG_COMP_REC_INSERT, data, *pos)
 	if err != nil {
 		return err
@@ -886,7 +886,7 @@ func (parse *ParseRedo) MLOG_REC_INSERT(data []byte, pos *uint64, mytype uint64)
 	return nil
 }
 
-func (parse *ParseRedo) MLOG_REC_CLUST_DELETE_MARK(data []byte, pos *uint64, mytype uint64) error {
+func (parse *Parse) MLOG_REC_CLUST_DELETE_MARK(data []byte, pos *uint64, mytype uint64) error {
 
 	Pos, err := utils.ParseIndex(mytype == MLOG_COMP_REC_CLUST_DELETE_MARK, data, *pos)
 	if err != nil {
@@ -928,7 +928,7 @@ func (parse *ParseRedo) MLOG_REC_CLUST_DELETE_MARK(data []byte, pos *uint64, myt
 	return nil
 }
 
-func (parse *ParseRedo) MLOG_COMP_REC_SEC_DELETE_MARK(data []byte, pos *uint64) error {
+func (parse *Parse) MLOG_COMP_REC_SEC_DELETE_MARK(data []byte, pos *uint64) error {
 	Pos, err := utils.ParseIndex(true, data, *pos)
 	if err != nil {
 		return err
@@ -938,7 +938,7 @@ func (parse *ParseRedo) MLOG_COMP_REC_SEC_DELETE_MARK(data []byte, pos *uint64) 
 	return nil
 }
 
-func (parse *ParseRedo) MLOG_REC_UPDATE_IN_PLACE(data []byte, pos *uint64, MyType uint64) error {
+func (parse *Parse) MLOG_REC_UPDATE_IN_PLACE(data []byte, pos *uint64, MyType uint64) error {
 
 	// Catch panic
 	defer func() {
@@ -1014,7 +1014,7 @@ func (parse *ParseRedo) MLOG_REC_UPDATE_IN_PLACE(data []byte, pos *uint64, MyTyp
 	return nil
 }
 
-func (parse *ParseRedo) MLOG_REC_DELETE(data []byte, pos *uint64, MyType uint64) error {
+func (parse *Parse) MLOG_REC_DELETE(data []byte, pos *uint64, MyType uint64) error {
 	Pos, err := utils.ParseIndex(MyType == MLOG_COMP_REC_DELETE, data, *pos)
 	if err != nil {
 		return err
@@ -1032,7 +1032,7 @@ func (parse *ParseRedo) MLOG_REC_DELETE(data []byte, pos *uint64, MyType uint64)
 	return nil
 }
 
-func (parse *ParseRedo) MLOG_LIST_DELETE(data []byte, pos *uint64, MyType uint64) error {
+func (parse *Parse) MLOG_LIST_DELETE(data []byte, pos *uint64, MyType uint64) error {
 	Pos, err := utils.ParseIndex(MyType == MLOG_COMP_LIST_START_DELETE ||
 		MyType == MLOG_COMP_LIST_END_DELETE, data, *pos)
 	if err != nil {
@@ -1051,7 +1051,7 @@ func (parse *ParseRedo) MLOG_LIST_DELETE(data []byte, pos *uint64, MyType uint64
 	return nil
 }
 
-func (parse *ParseRedo) MLOG_LIST_END_COPY_CREATED(data []byte, pos *uint64, MyType uint64) error {
+func (parse *Parse) MLOG_LIST_END_COPY_CREATED(data []byte, pos *uint64, MyType uint64) error {
 
 	Pos, err := utils.ParseIndex(MyType == MLOG_COMP_LIST_END_COPY_CREATED, data, *pos)
 	if err != nil {
@@ -1096,7 +1096,7 @@ func (parse *ParseRedo) MLOG_LIST_END_COPY_CREATED(data []byte, pos *uint64, MyT
 	return nil
 }
 
-func (parse *ParseRedo) MLOG_PAGE_REORGANIZE(data []byte, pos *uint64, MyType uint64) error {
+func (parse *Parse) MLOG_PAGE_REORGANIZE(data []byte, pos *uint64, MyType uint64) error {
 
 	Pos, err := utils.ParseIndex(MyType != MLOG_PAGE_REORGANIZE, data, *pos)
 	if err != nil {
@@ -1113,7 +1113,7 @@ func (parse *ParseRedo) MLOG_PAGE_REORGANIZE(data []byte, pos *uint64, MyType ui
 	return nil
 }
 
-func (parse *ParseRedo) MLOG_ZIP_WRITE_NODE_PTR(data []byte, pos *uint64) {
+func (parse *Parse) MLOG_ZIP_WRITE_NODE_PTR(data []byte, pos *uint64) {
 
 	// TODO: confirm.
 
@@ -1128,11 +1128,11 @@ func (parse *ParseRedo) MLOG_ZIP_WRITE_NODE_PTR(data []byte, pos *uint64) {
 	*pos += 4
 }
 
-func (parse *ParseRedo) MLOG_ZIP_WRITE_BLOB_PTR(data []byte, pos uint64) {
+func (parse *Parse) MLOG_ZIP_WRITE_BLOB_PTR(data []byte, pos uint64) {
 	pos += 24
 }
 
-func (parse *ParseRedo) MLOG_ZIP_WRITE_HEADER(data []byte, pos *uint64) {
+func (parse *Parse) MLOG_ZIP_WRITE_HEADER(data []byte, pos *uint64) {
 	// TODO: confirm.
 
 	offset := uint64(data[*pos:][0])
@@ -1145,7 +1145,7 @@ func (parse *ParseRedo) MLOG_ZIP_WRITE_HEADER(data []byte, pos *uint64) {
 	*pos += DataLen
 }
 
-func (parse *ParseRedo) MLOG_ZIP_PAGE_COMPRESS(data []byte, pos *uint64) {
+func (parse *Parse) MLOG_ZIP_PAGE_COMPRESS(data []byte, pos *uint64) {
 	size := utils.MatchReadFrom2(data[*pos:])
 	*pos += 2
 	TrailerSize := utils.MatchReadFrom2(data[*pos:])
@@ -1155,7 +1155,7 @@ func (parse *ParseRedo) MLOG_ZIP_PAGE_COMPRESS(data []byte, pos *uint64) {
 	logs.Debug("size is:", size, "TrailerSize is :", TrailerSize)
 }
 
-func (parse *ParseRedo) MLOG_ZIP_PAGE_COMPRESS_NO_DATA(data []byte, pos *uint64) error {
+func (parse *Parse) MLOG_ZIP_PAGE_COMPRESS_NO_DATA(data []byte, pos *uint64) error {
 	// TODO: confirm.
 
 	Pos, err := utils.ParseIndex(true, data, *pos)
@@ -1170,7 +1170,7 @@ func (parse *ParseRedo) MLOG_ZIP_PAGE_COMPRESS_NO_DATA(data []byte, pos *uint64)
 	return nil
 }
 
-func (parse *ParseRedo) ValidateLogHeader(LogType uint64, SpaceID uint64) bool {
+func (parse *Parse) ValidateLogHeader(LogType uint64, SpaceID uint64) bool {
 
 	HaveType := true
 
