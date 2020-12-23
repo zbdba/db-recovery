@@ -104,11 +104,11 @@ func (parse *Parse) ParseUndoPageHeader(page *Page) *Page {
 
 	TRX_UNDO_XID_EXISTS := utils.MatchReadFrom1(d[pos:])
 	fmt.Println("the TRX_UNDO_XID_EXISTS is ", TRX_UNDO_XID_EXISTS)
-	pos += 1
+	pos ++
 
 	TRX_UNDO_DICT_TRANS := utils.MatchReadFrom1(d[pos:])
 	fmt.Println("the TRX_UNDO_DICT_TRANS is ", TRX_UNDO_DICT_TRANS)
-	pos += 1
+	pos ++
 
 	TRX_UNDO_TABLE_ID := utils.MatchReadFrom8(d[pos:])
 	fmt.Println("the TRX_UNDO_TABLE_ID is ", TRX_UNDO_TABLE_ID)
@@ -131,7 +131,7 @@ func (parse *Parse) ParseUndoPageHeader(page *Page) *Page {
 	fmt.Println(DataLen, StartPos)
 
 	TypeCmpl := int64(utils.MatchReadFrom1(d[tmp_pos:]))
-	tmp_pos += 1
+	tmp_pos ++
 
 	TypeCmpl &= ^128
 	UndoType := TypeCmpl & (16 - 1)

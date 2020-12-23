@@ -25,6 +25,7 @@ import (
 	"github.com/zbdba/db-recovery/recovery/utils"
 )
 
+// Parse for redo log
 type Parse struct {
 	// Store table info.
 	TableMap map[uint64]ibdata.Tables
@@ -36,53 +37,57 @@ type Parse struct {
 	DBName string
 }
 
-func NewParse(ibFilePath string, tableName string, dbName string) (*Parse, error) {
-	p := &Parse{TableName: tableName, DBName: dbName}
-
-	// get data dict
-	i := ibdata.NewParse()
-	ParseDictErr := i.ParseDictPage(ibFilePath)
-	if ParseDictErr != nil {
-		return nil, ParseDictErr
+// NewParse ...
+func NewParse(tableName string, dbName string) *Parse {
+	return &Parse{
+		TableMap:  make(map[uint64]ibdata.Tables),
+		TableName: tableName,
+		DBName:    dbName,
 	}
-	p.TableMap = i.TableMap
-
-	return p, nil
 }
 
-// Parse the redo log file
+// ParseDictPage ...
+func (parse *Parse) ParseDictPage(ibdataPath string) error {
+	// get data dict
+	ibdataParse := ibdata.NewParse()
+	err := ibdataParse.ParseDictPage(ibdataPath)
+	parse.TableMap = ibdataParse.TableMap
+	return err
+}
+
+// ParseRedoLogs parse the redo log file
 // The redo log file have four parts:
-// 1.redo log header
-// 2.checkpoint 1
-// 3.checkpoint 2
-// 4.redo block
+// 1. redo log header
+// 2. checkpoint 1
+// 3. checkpoint 2
+// 4. redo block
 // And every parts is 512 bytes, there will be many
 // redo blocks which store the redo record.
-func (parse *Parse) Parse(logFileList []string) error {
+func (parse *Parse) ParseRedoLogs(logFileList []string) error {
 	var data []byte
 	for _, LogFile := range logFileList {
 		file, err := os.Open(LogFile)
 		if err != nil {
 			logs.Error("Error while opening file, the error is ", err)
+			return err
 		}
-		defer file.Close()
 
 		// Parse read redo log header
-		ReadHaderErr := parse.ReadHeader(file)
-		if ReadHaderErr != nil {
-			return ReadHaderErr
+		if err = parse.ReadHeader(file); err != nil {
+			return err
 		}
 
 		// Parse read redo log checkpoint
-		ReadCheckPointErr := parse.ReadCheckpoint(file)
-		if ReadCheckPointErr != nil {
-			return ReadCheckPointErr
+		if err = parse.ReadCheckpoint(file); err != nil {
+			return err
 		}
 
 		// Move to the start of the logs
 		// Current position is 512 + 512 + 512 = 1536 and logs start at 2048
 		if pos, err := file.Seek(BlockSize, io.SeekCurrent); err == nil {
 			logs.Debug("Current position: ", pos)
+		} else {
+			return err
 		}
 
 		for {
@@ -122,15 +127,15 @@ func (parse *Parse) Parse(logFileList []string) error {
 			// Add all redo block data.
 			data = append(data, d[pos:DataLen]...)
 		}
+		file.Close()
 	}
 
 	// Start parse redo log data.
-	ParseDataErr := parse.ParseRedoBlockData(data)
-	if ParseDataErr != nil {
-		logs.Debug("parse redo block data failed, the error is ", ParseDataErr)
-		return ParseDataErr
+	err := parse.ParseRedoBlockData(data)
+	if err != nil {
+		logs.Error("parse redo block data failed, error: ", err.Error())
 	}
-	return nil
+	return err
 }
 
 // Parse the redo block data, it consists of many redo records.
@@ -603,651 +608,4 @@ func (parse *Parse) MakeSQL(table ibdata.Tables, PrimaryColumns []*ibdata.Fields
 
 	logs.Debug("query is ", Query)
 	fmt.Println(Query)
-}
-
-// Parse the undo record.
-func (parse *Parse) MLOG_UNDO_INSERT(data []byte, pos *uint64) error {
-
-	DataLen := utils.MatchReadFrom2(data[*pos:])
-	*pos += 2
-	StartPos := *pos
-
-	// catch panic
-	defer func() {
-		if err := recover(); err != nil {
-			logs.Error("skip error, the error is ", err)
-			*pos = StartPos + DataLen
-		}
-	}()
-
-	TypeCmpl := int64(utils.MatchReadFrom1(data[*pos:]))
-	*pos += 1
-
-	TypeCmpl &= ^TRX_UNDO_UPD_EXTERN
-	UndoType := TypeCmpl & (TRX_UNDO_CMPL_INFO_MULT - 1)
-	CmplInfo := TypeCmpl
-
-	logs.Debug("UndoType is", UndoType, "CmplInfo is ", CmplInfo)
-
-	UndoNo, err := utils.MatchUllReadMuchCompressed(data[*pos:])
-	if err != nil {
-		*pos = StartPos + DataLen
-		return err
-	}
-	logs.Debug("UndoNo is ", UndoNo)
-
-	*pos += utils.MachUllGetMuchCompressedSize(UndoNo)
-
-	TableId, err := utils.MatchUllReadMuchCompressed(data[*pos:])
-	if err != nil {
-		*pos = StartPos + DataLen
-		return err
-	}
-
-	logs.Debug("TableId is ", TableId)
-	*pos += utils.MachUllGetMuchCompressedSize(TableId)
-
-	if UndoType != TRX_UNDO_INSERT_REC {
-		// Skip info bits
-		logs.Debug("info bits is ", data[*pos:][0])
-		*pos += 1
-
-		TrxId := utils.MatchUllReadComPressed(data, pos)
-		logs.Debug("TrxID is ", TrxId)
-
-		RollPtr := utils.MatchUllReadComPressed(data, pos)
-		logs.Debug("RollPtr is ", RollPtr)
-	}
-
-	Table, err := parse.GetTableByTableID(TableId)
-	if err != nil {
-		*pos = StartPos + DataLen
-		return err
-	}
-
-	PrimaryFields, err := parse.GetPrimaryKey(Table)
-	if err != nil {
-		*pos = StartPos + DataLen
-		return err
-	}
-
-	for _, v := range PrimaryFields {
-		Column := parse.GetColumnsByName(Table, v.ColumnName)
-		// get the unique key.
-		FiledLen, num, err := utils.MatchParseCompressed(data, *pos)
-		if err != nil {
-			return err
-		}
-		logs.Debug("FiledLen is ", FiledLen, "num is ", num)
-		*pos += num
-		value, err := utils.ParseData(
-			Column.FieldType, Column.MySQLType,
-			data[*pos:*pos+FiledLen], FiledLen,
-			int(utils.GetFixedLength(Column.FieldType, Column.FieldLen)),
-			Column.IsUnsigned, &Column.IsBinary)
-		if err != nil {
-			return err
-		}
-
-		logs.Debug("the table is ", Table.TableName, " table id is ", TableId, " unique value is ")
-		v.ColumnValue = value
-
-		*pos += FiledLen
-	}
-
-	var columns []*ibdata.Columns
-
-	// Get update record.
-	if UndoType == TRX_UNDO_UPD_EXIST_REC {
-		// Get update column num.
-		ColumnNum, num, err := utils.MatchParseCompressed(data, *pos)
-		if err != nil {
-			return err
-		}
-
-		logs.Debug("ColumnNum is ", ColumnNum)
-		*pos += num
-
-		var i uint64
-		for i = 0; i < ColumnNum; i++ {
-			Pos, num, err := utils.MatchParseCompressed(data, *pos)
-			if err != nil {
-				return err
-			}
-
-			logs.Debug("Pos is ", Pos, " num is ", num)
-			*pos += num
-
-			c, err := parse.GetColumnByPos(Table, Pos)
-			if err != nil {
-				return err
-			}
-
-			Flen, num, err := utils.MatchParseCompressed(data, *pos)
-			logs.Debug("Flen is ", Flen, " num is ", num, "Field Type is ", c.FieldType)
-			*pos += num
-
-			var value interface{}
-			if *pos+Flen > uint64(len(data)) {
-				value = nil
-				Flen = 0
-			} else {
-				value, err = utils.ParseData(c.FieldType, c.MySQLType, data[*pos:], Flen,
-					int(utils.GetFixedLength(c.FieldType, c.FieldLen)), c.IsUnsigned, &c.IsBinary)
-				if err != nil {
-					return err
-				}
-
-			}
-
-			c.FieldValue = value
-			columns = append(columns, c)
-			*pos += Flen
-
-			logs.Debug("values is ", value)
-		}
-
-		// Make data to sql statement, only for update statement.
-		// Print sql statement when user identify the table name or the database name,
-		// if user don't identify table and database name, print all sql statement.
-		if Table.DBName == parse.DBName {
-			if Table.TableName == parse.TableName {
-				parse.MakeSQL(Table, PrimaryFields, columns)
-			} else if parse.TableName == "" {
-				parse.MakeSQL(Table, PrimaryFields, columns)
-			}
-		} else if parse.DBName == "" && parse.TableName == "" {
-			parse.MakeSQL(Table, PrimaryFields, columns)
-		} else if parse.TableName != "" && parse.TableName == Table.TableName {
-			parse.MakeSQL(Table, PrimaryFields, columns)
-		}
-	}
-
-	// TODO: confirm
-	//if (UndoType != TRX_UNDO_UPD_EXIST_REC) || ((CmplInfo&1) == 0) {
-	//	// get delete mark record.
-	//	if int64(DataLen-(*pos-StartPos)) >= 5 {
-	//		*pos += 2
-	//		for {
-	//			// TODO: uint64 don't have negative.
-	//			if int64(DataLen-(*pos-StartPos)) <= 2 {
-	//				logs.Debug("pos is", pos, "StartPos is ", StartPos, " len is ", DataLen)
-	//				break
-	//			}
-	//
-	//			Pos, num, err := utils.MatchParseCompressed(data, *pos)
-	//			if err != nil {
-	//				return err
-	//			}
-	//			logs.Debug("Pos is ", Pos)
-	//			*pos += num
-	//
-	//			Flen, num, err := utils.MatchParseCompressed(data, *pos)
-	//			logs.Debug("Flen is ", Flen)
-	//			*pos += num
-	//			*pos += Flen
-	//		}
-	//	}
-	//}
-	//
-	//if int64(DataLen-(*pos-StartPos)) >= 2 {
-	//	*pos += 2
-	//}
-
-	// if parse incorrectly, the pos may be wrong. add the data len directly.
-	if *pos-StartPos != DataLen {
-		*pos = StartPos + DataLen
-	}
-
-	logs.Debug("delta pos is ", *pos-StartPos,
-		"undo insert len is ", DataLen, " complete undo insert parse.")
-
-	return nil
-}
-
-func (parse *Parse) MLOG_UNDO_INIT(data []byte, pos *uint64) error {
-	_, num, err := utils.MatchParseCompressed(data, *pos)
-	if err != nil {
-		return err
-	}
-	*pos += num
-
-	return nil
-}
-
-func (parse *Parse) MLOG_UNDO_HDR_REUSE(data []byte, pos *uint64) {
-	utils.MatchUllReadComPressed(data, pos)
-}
-
-func (parse *Parse) MLOG_UNDO_HDR_CREATE(data []byte, pos *uint64) error {
-	value, _, err := utils.MatchParseCompressed(data, *pos)
-	if err != nil {
-		logs.Error("parse MLOG_UNDO_HDR_CREATE failed, the error is ", err.Error())
-	}
-
-	size, err := utils.MatchGetCompressedSize(value)
-	if err != nil {
-		return err
-	}
-
-	*pos += size
-	*pos += 4
-
-	return nil
-}
-
-func (parse *Parse) MLOG_WRITE_STRING(data []byte, pos *uint64) {
-
-	// Parses a log record written by mlog_write_string
-	offset := utils.MatchReadFrom2(data[*pos:])
-	*pos += 2
-	len := utils.MatchReadFrom2(data[*pos:])
-	*pos += 2
-	*pos += len
-	logs.Debug("offset is ", offset, " len is ", len)
-
-}
-
-func (parse *Parse) MLOG_FILE_OP(data []byte, pos *uint64, MyType uint64) {
-
-	if MyType == MLOG_FILE_CREATE2 {
-		flags := utils.MatchReadFrom4(data[*pos:])
-		*pos += 4
-		logs.Debug("flags is ", flags)
-	}
-
-	NameLen := utils.MatchReadFrom2(data[*pos:])
-	*pos += 2
-	*pos += NameLen
-
-}
-
-func (parse *Parse) MLOG_REC_MARK(data []byte, pos uint64) {
-	pos += 2
-}
-
-func (parse *Parse) MLOG_REC_INSERT(data []byte, pos *uint64, mytype uint64) error {
-	Pos, err := utils.ParseIndex(mytype == MLOG_COMP_REC_INSERT, data, *pos)
-	if err != nil {
-		return err
-	} else {
-		*pos = Pos
-
-		// page_cur_parse_insert_rec, Parses a log record of a record insert on a page.
-		Pos, err := utils.ParseInsertRecord(false, data, *pos)
-
-		if err != nil {
-			return err
-		} else {
-			*pos = Pos
-		}
-	}
-
-	return nil
-}
-
-func (parse *Parse) MLOG_REC_CLUST_DELETE_MARK(data []byte, pos *uint64, mytype uint64) error {
-
-	Pos, err := utils.ParseIndex(mytype == MLOG_COMP_REC_CLUST_DELETE_MARK, data, *pos)
-	if err != nil {
-		return err
-	} else {
-		*pos = Pos
-		// btr_cur_parse_del_mark_set_clust_rec
-		// Parses the redo log record for delete marking or unmarking of a clustered
-		// index record.
-		flags := utils.MatchReadFrom1(data[*pos:])
-		*pos += 1
-
-		value := utils.MatchReadFrom1(data[*pos:])
-		*pos += 1
-
-		Pos, num, err := utils.MatchParseCompressed(data, *pos)
-		if err != nil {
-			return err
-		}
-
-		logs.Debug("num is ", num)
-		*pos += num
-
-		RollPtr := utils.MatchReadFrom7(data[*pos:])
-		*pos += 7
-
-		// TODO: should use MatchUllParseComPressed.
-		TrxId := utils.MatchUllReadComPressed(data, pos)
-
-		logs.Debug("flags is ", flags, "value is ", value, "Pos is ",
-			Pos, "RollPtr is ", RollPtr, "TrxId is ", TrxId)
-
-		offset := utils.MatchReadFrom2(data[*pos:])
-		*pos += 2
-
-		logs.Debug("page offset is ", offset)
-
-	}
-	return nil
-}
-
-func (parse *Parse) MLOG_COMP_REC_SEC_DELETE_MARK(data []byte, pos *uint64) error {
-	Pos, err := utils.ParseIndex(true, data, *pos)
-	if err != nil {
-		return err
-	} else {
-		*pos = Pos
-	}
-	return nil
-}
-
-func (parse *Parse) MLOG_REC_UPDATE_IN_PLACE(data []byte, pos *uint64, MyType uint64) error {
-
-	// Catch panic
-	defer func() {
-		if err := recover(); err != nil {
-			logs.Error("skip error, the error is ", err)
-		}
-	}()
-
-	Pos, err := utils.ParseIndex(MyType == MLOG_COMP_REC_UPDATE_IN_PLACE, data, *pos)
-	if err != nil {
-		return err
-	} else {
-		*pos = Pos
-		// read flag.
-		flag := utils.MatchReadFrom1(data[*pos:])
-		*pos += 1
-
-		// row_upd_parse_sys_vals Parses the log data of system field values.
-		Pos, num, err := utils.MatchParseCompressed(data, *pos)
-		if err != nil {
-			return err
-		}
-		*pos += num
-		if uint64(len(data)) < (*pos + 7) {
-			ErrMsg := fmt.Sprintf("data is too short")
-			logs.Debug(ErrMsg)
-			return fmt.Errorf(ErrMsg)
-		} else {
-			RollPtr := utils.MatchReadFrom7(data[*pos:])
-			// DATA_ROLL_PTR_LEN
-			*pos += 7
-
-			TrxId := utils.MatchUllReadComPressed(data, pos)
-
-			logs.Debug("flag is ", flag, "pos is ",
-				Pos, "RollPtr is ", RollPtr, "TrxId is ", TrxId)
-
-			RecordOffset := utils.MatchReadFrom2(data[*pos:])
-			*pos += 2
-
-			// row_upd_index_parse Parses the log data written by row_upd_index_write_log.
-			InfoBits := utils.MatchReadFrom1(data[*pos:])
-
-			*pos += 1
-			FieldsNum, num, err := utils.MatchParseCompressed(data, *pos)
-			if err != nil {
-				return err
-			} else {
-				logs.Debug("page offset is ", RecordOffset, " InfoBits is ",
-					InfoBits, " FieldsNum is ", FieldsNum)
-			}
-			*pos += num
-
-			var i uint64
-			for i = 0; i < FieldsNum; i++ {
-				FieldNo, num, err := utils.MatchParseCompressed(data, *pos)
-				if err != nil {
-					return err
-				}
-				*pos += num
-
-				FieldLen, num, err := utils.MatchParseCompressed(data, *pos)
-				if err != nil {
-					return err
-				} else {
-					logs.Debug("FieldNo is ", FieldNo, " FieldLen is ", FieldLen)
-				}
-				*pos += num
-				*pos += FieldLen
-			}
-		}
-	}
-	return nil
-}
-
-func (parse *Parse) MLOG_REC_DELETE(data []byte, pos *uint64, MyType uint64) error {
-	Pos, err := utils.ParseIndex(MyType == MLOG_COMP_REC_DELETE, data, *pos)
-	if err != nil {
-		return err
-	} else {
-		*pos = Pos
-
-		// page_cur_parse_delete_rec
-		// Parses log record of a record delete on a page.
-		offset := utils.MatchReadFrom2(data[*pos:])
-		*pos += 2
-
-		logs.Debug("offset is ", offset)
-
-	}
-	return nil
-}
-
-func (parse *Parse) MLOG_LIST_DELETE(data []byte, pos *uint64, MyType uint64) error {
-	Pos, err := utils.ParseIndex(MyType == MLOG_COMP_LIST_START_DELETE ||
-		MyType == MLOG_COMP_LIST_END_DELETE, data, *pos)
-	if err != nil {
-		return err
-	} else {
-		*pos = Pos
-
-		// page_parse_delete_rec_list
-		// Parses a log record of a record list end or start deletion.
-
-		offset := utils.MatchReadFrom2(data[*pos:])
-		*pos += 2
-
-		logs.Debug("offset is ", offset)
-	}
-	return nil
-}
-
-func (parse *Parse) MLOG_LIST_END_COPY_CREATED(data []byte, pos *uint64, MyType uint64) error {
-
-	Pos, err := utils.ParseIndex(MyType == MLOG_COMP_LIST_END_COPY_CREATED, data, *pos)
-	if err != nil {
-		return err
-	} else {
-		*pos = Pos
-
-		// page_parse_copy_rec_list_to_created_page
-		// Parses a log record of copying a record list end to a new created page.
-		LogDataLen := utils.MatchReadFrom4(data[*pos:])
-		*pos += 4
-
-		RecEnd := *pos + LogDataLen
-
-		if RecEnd > uint64(len(data)) {
-			ErrMsg := fmt.Sprintf("data too short")
-			logs.Debug(ErrMsg)
-			return fmt.Errorf(ErrMsg)
-		}
-
-		logs.Debug("LogDataLen is ", LogDataLen)
-
-		for {
-			if *pos < RecEnd {
-
-				logs.Debug("LogDataLen is ", LogDataLen)
-
-				// page_cur_parse_insert_rec, Parses a log record of a record insert on a page.
-				Pos, err := utils.ParseInsertRecord(true, data, *pos)
-				if err != nil {
-					return err
-				} else {
-					*pos = Pos
-				}
-
-			} else {
-				break
-			}
-
-		}
-	}
-	return nil
-}
-
-func (parse *Parse) MLOG_PAGE_REORGANIZE(data []byte, pos *uint64, MyType uint64) error {
-
-	Pos, err := utils.ParseIndex(MyType != MLOG_PAGE_REORGANIZE, data, *pos)
-	if err != nil {
-		return err
-	} else {
-		*pos = Pos
-
-		if MyType == MLOG_ZIP_PAGE_REORGANIZE {
-			level := utils.MatchReadFrom1(data[*pos:])
-			*pos++
-			logs.Debug("level is ", level)
-		}
-	}
-	return nil
-}
-
-func (parse *Parse) MLOG_ZIP_WRITE_NODE_PTR(data []byte, pos *uint64) {
-
-	// TODO: confirm.
-
-	offset := utils.MatchReadFrom2(data[*pos:])
-	*pos += 2
-	Zoffset := utils.MatchReadFrom2(data[*pos:])
-	*pos += 2
-
-	logs.Debug("offset is", offset, "Zoffset is ", Zoffset)
-
-	// REC_NODE_PTR_SIZE
-	*pos += 4
-}
-
-func (parse *Parse) MLOG_ZIP_WRITE_BLOB_PTR(data []byte, pos uint64) {
-	pos += 24
-}
-
-func (parse *Parse) MLOG_ZIP_WRITE_HEADER(data []byte, pos *uint64) {
-	// TODO: confirm.
-
-	offset := uint64(data[*pos:][0])
-	logs.Debug("offset is ", offset)
-
-	*pos += 1
-	DataLen := uint64(data[*pos:][0])
-	*pos += 1
-
-	*pos += DataLen
-}
-
-func (parse *Parse) MLOG_ZIP_PAGE_COMPRESS(data []byte, pos *uint64) {
-	size := utils.MatchReadFrom2(data[*pos:])
-	*pos += 2
-	TrailerSize := utils.MatchReadFrom2(data[*pos:])
-	*pos += 2
-	*pos += 8 + size + TrailerSize
-
-	logs.Debug("size is:", size, "TrailerSize is :", TrailerSize)
-}
-
-func (parse *Parse) MLOG_ZIP_PAGE_COMPRESS_NO_DATA(data []byte, pos *uint64) error {
-	// TODO: confirm.
-
-	Pos, err := utils.ParseIndex(true, data, *pos)
-	if err != nil {
-		return err
-	} else {
-		*pos = Pos
-		level := utils.MatchReadFrom1(data[*pos:])
-		logs.Debug("level is ", level)
-		*pos += 1
-	}
-	return nil
-}
-
-func (parse *Parse) ValidateLogHeader(LogType uint64, SpaceID uint64) bool {
-
-	HaveType := true
-
-	switch LogType {
-
-	case MLOG_1BYTE, MLOG_2BYTES, MLOG_4BYTES, MLOG_8BYTES:
-
-	case MLOG_REC_SEC_DELETE_MARK:
-
-	case MLOG_UNDO_INSERT:
-
-	case MLOG_UNDO_ERASE_END:
-
-	case MLOG_UNDO_INIT:
-	case MLOG_UNDO_HDR_DISCARD:
-
-	case MLOG_UNDO_HDR_REUSE:
-
-	case MLOG_UNDO_HDR_CREATE:
-
-	case MLOG_IBUF_BITMAP_INIT:
-
-	case MLOG_INIT_FILE_PAGE, MLOG_INIT_FILE_PAGE2:
-
-	case MLOG_WRITE_STRING:
-
-	case MLOG_MULTI_REC_END:
-
-	case MLOG_DUMMY_RECORD:
-
-	case MLOG_FILE_RENAME, MLOG_FILE_CREATE,
-		MLOG_FILE_DELETE, MLOG_FILE_CREATE2,
-		MLOG_FILE_RENAME2, MLOG_FILE_NAME:
-
-	case MLOG_REC_MIN_MARK, MLOG_COMP_REC_MIN_MARK:
-
-	case MLOG_PAGE_CREATE, MLOG_COMP_PAGE_CREATE:
-
-	case MLOG_REC_INSERT, MLOG_COMP_REC_INSERT:
-
-	case MLOG_REC_CLUST_DELETE_MARK, MLOG_COMP_REC_CLUST_DELETE_MARK:
-	case MLOG_COMP_REC_SEC_DELETE_MARK:
-
-	case MLOG_REC_UPDATE_IN_PLACE, MLOG_COMP_REC_UPDATE_IN_PLACE:
-
-	case MLOG_REC_DELETE, MLOG_COMP_REC_DELETE:
-
-	case MLOG_LIST_END_DELETE,
-		MLOG_COMP_LIST_END_DELETE,
-		MLOG_LIST_START_DELETE,
-		MLOG_COMP_LIST_START_DELETE:
-
-	case MLOG_LIST_END_COPY_CREATED, MLOG_COMP_LIST_END_COPY_CREATED:
-
-	case MLOG_PAGE_REORGANIZE, MLOG_COMP_PAGE_REORGANIZE, MLOG_ZIP_PAGE_REORGANIZE:
-
-	case MLOG_ZIP_WRITE_NODE_PTR:
-	case MLOG_ZIP_WRITE_BLOB_PTR:
-
-	case MLOG_ZIP_WRITE_HEADER:
-
-	case MLOG_ZIP_PAGE_COMPRESS:
-
-	case MLOG_ZIP_PAGE_COMPRESS_NO_DATA:
-	case MLOG_CHECKPOINT:
-	case MLOG_COMP_PAGE_CREATE_RTREE, MLOG_PAGE_CREATE_RTREE:
-	case MLOG_TRUNCATE:
-	case MLOG_INDEX_LOAD:
-	default:
-		HaveType = false
-		break
-	}
-
-	//_, err := parse.GetTableBySpaceID(SpaceID)
-	//if err != nil || !HaveType {
-	//	return false
-	//}
-
-	return HaveType
 }

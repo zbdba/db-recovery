@@ -156,13 +156,15 @@ func FromRedoFile(cmd *cobra.Command, args []string) {
 		return
 	}
 
-	p, err := redo.NewParse(SysDataFile, TableName, DBName)
+	p := redo.NewParse(TableName, DBName)
+
+	err = p.ParseDictPage(SysDataFile)
 	if err != nil {
 		logs.Error("parse redo failed, error: ", err.Error())
 		return
 	}
 
-	err = p.Parse(strings.Split(RedoFile, ","))
+	err = p.ParseRedoLogs(strings.Split(RedoFile, ","))
 	if err != nil {
 		fmt.Println("parse redo failed, error: ", err.Error())
 		return

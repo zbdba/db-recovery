@@ -44,6 +44,7 @@ docker-mysql:
 	-e MYSQL_DATABASE=test \
 	-p 3306:3306 \
 	-v `pwd`/cmd/test/test.sql:/docker-entrypoint-initdb.d/test.sql \
+	-v `pwd`/cmd/test/fixture/$(MYSQL_RELEASE)_$(MYSQL_VERSION):/var/lib/mysql \
 	$(MYSQL_RELEASE):$(MYSQL_VERSION) \
 	--sql-mode ""
 	@echo "waiting for earth database initializing "
@@ -63,15 +64,14 @@ docker-mysql:
 docker-connect:
 	@docker exec -it recovery-mysql env LANG=C.UTF-8 mysql --user=root --password=123456 --host "127.0.0.1" test
 
-# you need to add your user into sudo groups or you need type system password
-.PHONY: fixture
-fixture:
-	sudo rm -rf cmd/test/fixture
-	sudo cp -r $(DOCKER_VOLUME) cmd/test/fixture
-	sudo chown -R $(USER).$(USER) cmd/test/fixture
-
 .PHONY: test
 test:
 	@echo "Run all test cases ..."
-	@go test -timeout 10m -race ./recovery/...
+	@go test -timeout 10m -race ./recovery/... -mysql-release $(MYSQL_RELEASE) -mysql-version $(MYSQL_VERSION)
+
+	@ret=0 && for d in $$(go list -f '{{if (eq .Name "main")}}{{.ImportPath}}{{end}}' ./... | grep test); do \
+		b=$$(basename $${d}) ; \
+		go build -ldflags ${GO_LDFLAGS} -o bin/test-$${b} $$d || ret=$$? ; \
+	done ; exit $$ret
+
 	@echo "test Success!"

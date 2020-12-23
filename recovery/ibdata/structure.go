@@ -14,7 +14,7 @@
 
 package ibdata
 
-// Store the table structure info.
+// Tables store the table structure info.
 type Tables struct {
 	DBName    string
 	TableName string
@@ -113,6 +113,7 @@ type SystemPageHeader struct {
 	DICT_HDR_FIELDS       uint64
 }
 
+// Page ...
 type Page struct {
 	// All MySQL page have this header.
 	fh FilHeader

@@ -25,6 +25,7 @@ import (
 	"github.com/zbdba/db-recovery/recovery/utils"
 )
 
+// Parse for ibdata
 type Parse struct {
 	// store table's struct.
 	TableMap map[uint64]Tables
@@ -32,6 +33,7 @@ type Parse struct {
 	D *sync.Map
 }
 
+// NewParse create parse
 func NewParse() *Parse {
 	return &Parse{
 		TableMap: make(map[uint64]Tables),
@@ -39,7 +41,7 @@ func NewParse() *Parse {
 	}
 }
 
-// Get table struct in dict page.
+// ParseDictPage get table struct in dict page.
 func (parse *Parse) ParseDictPage(path string) error {
 
 	pages, err := parse.parseFile(path)
@@ -135,22 +137,21 @@ func (parse *Parse) ParseDictPage(path string) error {
 	return nil
 }
 
-// Read table data from data file, should identified the file
+// ParseDataPage read table data from data file, should identified the file
 // path/database name/table name which can confirm the table info.
 // You should identify the IsRecovery to confirm
 // whether recovery table data or just read table data.
 func (parse *Parse) ParseDataPage(path string, dbName string, tableName string, isRecovery bool) error {
-	pages, ParseFileErr := parse.parseFile(path)
-	if ParseFileErr != nil {
-		return ParseFileErr
+	pages, err := parse.parseFile(path)
+	if err != nil {
+		return err
 	}
 
 	// Get table fields info from data dict.
-	fields, GetFieldsErr := parse.getTableColumnsFromDict(dbName, tableName)
-	if GetFieldsErr != nil {
-		logs.Error("get fields from dict failed, the error is ", GetFieldsErr,
-			" the db name is ", dbName, " the table name is ", tableName)
-		return GetFieldsErr
+	fields, err := parse.getTableColumnsFromDict(dbName, tableName)
+	if err != nil {
+		logs.Error("get fields from dict failed, error: ", err.Error(), " DBName: ", dbName, " TableName: ", tableName)
+		return err
 	}
 
 	for _, page := range pages {
@@ -183,15 +184,15 @@ func (parse *Parse) ParseDataPage(path string, dbName string, tableName string, 
 			page.ph.PAGE_LEVEL == uint64(0) &&
 			page.ph.PAGE_MAX_TRX_ID == uint64(0) &&
 			!(isRecovery && page.ph.PAGE_FREE == 0) {
-			AllColumns := parse.parsePage(page.OriginalData, len(page.OriginalData)-len(page.data),
+			allColumns := parse.parsePage(page.OriginalData, len(page.OriginalData)-len(page.data),
 				fields, isRecovery, page.ph.PAGE_FREE)
-			if len(AllColumns) == 0 {
+			if len(allColumns) == 0 {
 				logs.Info("have no data")
 				continue
 			}
 
 			// Make replace into statement.
-			parse.makeReplaceIntoStatement(AllColumns, tableName, dbName)
+			parse.makeReplaceIntoStatement(allColumns, tableName, dbName)
 		}
 	}
 	return nil
@@ -318,13 +319,13 @@ func (parse *Parse) sortColumns() {
 // move the primary key field to the first.
 func (parse *Parse) movePrimaryKeyFirst() {
 
-	for TableId, table := range parse.TableMap {
+	for tableID, table := range parse.TableMap {
 		for _, idx := range table.Indexes {
 			if idx.Name == "PRIMARY" {
 				table.Columns = parse.moveColumns2First(idx.Fields, table.Columns)
 			}
 		}
-		parse.TableMap[TableId] = table
+		parse.TableMap[tableID] = table
 	}
 }
 
@@ -347,27 +348,27 @@ func (parse *Parse) moveColumns2First(fields []*Fields, columns []Columns) []Col
 // If table have primary key, there should have two internal fields: DB_TRX_ID, DB_ROLL_PTR.
 // otherwise there should have three internal fields: DB_ROW_ID, DB_TRX_ID, DB_ROLL_PTR.
 func (parse *Parse) addInternalColumns() {
-	for TableId, table := range parse.TableMap {
+	for tableID, table := range parse.TableMap {
 		for _, idx := range table.Indexes {
 			if idx.Name == "PRIMARY" {
 				// primary key exists, add DB_TRX_ID, DB_ROLL_PTR after primary field.
-				TrxColumns := parse.addInternalColumn("DB_TRX_ID", TableId, idx.FieldNum)
-				RollPtrColumns := parse.addInternalColumn("DB_ROLL_PTR", TableId, idx.FieldNum+1)
+				TrxColumns := parse.addInternalColumn("DB_TRX_ID", tableID, idx.FieldNum)
+				RollPtrColumns := parse.addInternalColumn("DB_ROLL_PTR", tableID, idx.FieldNum+1)
 
 				table.Columns = addColumns(table.Columns, int(idx.FieldNum), TrxColumns)
 				table.Columns = addColumns(table.Columns, int(idx.FieldNum+1), RollPtrColumns)
-				parse.TableMap[TableId] = table
+				parse.TableMap[tableID] = table
 			} else if idx.Name == "GEN_CLUST_INDEX" {
 				// primary key doesn't exist, should add DB_ROW_ID field.
 				// TODO: remove repeat code.
-				RowIdColumns := parse.addInternalColumn("DB_ROW_ID", TableId, 0)
-				TrxColumns := parse.addInternalColumn("DB_TRX_ID", TableId, 1)
-				RollPtrColumns := parse.addInternalColumn("DB_ROLL_PTR", TableId, 2)
+				rowIDColumns := parse.addInternalColumn("DB_ROW_ID", tableID, 0)
+				trxColumns := parse.addInternalColumn("DB_TRX_ID", tableID, 1)
+				rollPtrColumns := parse.addInternalColumn("DB_ROLL_PTR", tableID, 2)
 
-				table.Columns = addColumns(table.Columns, 0, RowIdColumns)
-				table.Columns = addColumns(table.Columns, 1, TrxColumns)
-				table.Columns = addColumns(table.Columns, 2, RollPtrColumns)
-				parse.TableMap[TableId] = table
+				table.Columns = addColumns(table.Columns, 0, rowIDColumns)
+				table.Columns = addColumns(table.Columns, 1, trxColumns)
+				table.Columns = addColumns(table.Columns, 2, rollPtrColumns)
+				parse.TableMap[tableID] = table
 			}
 		}
 	}
@@ -1039,7 +1040,7 @@ func (parse *Parse) getTableFromDict(dbName string, tableName string) (Tables, e
 	return table, nil
 }
 
-// refrence /root/mysql-5.6.30/storage/innobase/include/rem0rec.ic
+// reference /root/mysql-5.6.30/storage/innobase/include/rem0rec.ic
 // rec_init_offsets
 // When MySQL innodb Storage use REDUNDANT row format, use this method
 // to calculate offset array which store column start offset and length.

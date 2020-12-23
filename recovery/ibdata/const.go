@@ -14,10 +14,12 @@
 
 package ibdata
 
+// DefaultPageSize ...
 // The default MySQL page size, size can be set 4k or 8k etc,
 // if not set use to the default page size.
 const DefaultPageSize int = 16384
 
+// FilPageIndex ...
 // mysql-5.7.19/storage/innobase/include/fil0fil.h
 // #define FIL_PAGE_INDEX		17855	/*!< B-tree node */
 const FilPageIndex uint64 = 17855
