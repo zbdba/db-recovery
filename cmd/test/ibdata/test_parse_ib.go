@@ -32,7 +32,7 @@ func main() {
 		fmt.Println(InitErr)
 	}
 
-	p := ibdata.NewParseIB()
+	p := ibdata.NewParse()
 
 	//err := p.ParseDictPage("/root/online_data_test/2020-01-02-15/ibdata1")
 	//err := p.ParseDictPage("/root/recovery/ibdata1")

@@ -1,3 +1,5 @@
 .idea
 .vscode
+
 bin/
+cmd/test/fixture/

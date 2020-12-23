@@ -40,7 +40,7 @@ func NewParseRedo(IbFilePath string, TableName string, DBName string) (*ParseRed
 	p := &ParseRedo{TableName: TableName, DBName: DBName}
 
 	// get data dict
-	I := ibdata.NewParseIB()
+	I := ibdata.NewParse()
 	ParseDictErr := I.ParseDictPage(IbFilePath)
 	if ParseDictErr != nil {
 		return nil, ParseDictErr
@@ -65,7 +65,6 @@ func (parse *ParseRedo) Parse(LogFileList []string) error {
 		if err != nil {
 			logs.Error("Error while opening file, the error is ", err)
 		}
-
 		defer file.Close()
 
 		// Parse read redo log header
@@ -83,7 +82,7 @@ func (parse *ParseRedo) Parse(LogFileList []string) error {
 		// Move to the start of the logs
 		// Current position is 512 + 512 + 512 = 1536 and logs start at 2048
 		if pos, err := file.Seek(BlockSize, io.SeekCurrent); err == nil {
-			logs.Debug("Current position: %d", pos)
+			logs.Debug("Current position: ", pos)
 		}
 
 		for {

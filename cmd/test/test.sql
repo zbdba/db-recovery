@@ -1,4 +1,4 @@
---test integer
+-- test integer
 CREATE TABLE test_int(
     a1 tinyint,
     a2 tinyint unsigned,
@@ -14,9 +14,10 @@ CREATE TABLE test_int(
 
 
 insert into test_int() values(-126, 253, -4000, 4000,  -400000, 400000, -4000000, 4000000, -5000000000, 5000000000);
+update test_int set a2 = 0 where a1 = -126;
 
 
---test float
+-- test float
 create table test_float(
     a1 float,
     a2 float unsigned,
@@ -30,11 +31,9 @@ create table test_float(
     primary key (`a1`)
 );
 
+insert into test_float() values(-1.23, 1.23, -2.56, 2.56, -999.99, 999.99, -888.88, 888.88, b'100');
 
-insert into test_float() values(-1.23, 1.23, -2.56, 2.56, -999.99, 999.99, -888.88, 888.88, b'123');
-
-
---test date
+-- test date
 create table test_date(
     a1 date,
     a2 date,
@@ -49,11 +48,9 @@ create table test_date(
     primary key (`a1`)
 );
 
-
 insert into test_date() values('2020-11-16', '1000-01-01', '2020-11-16 20:00:00', '2020-11-16 20:00:00.999999', '1970-01-02 00:00:01', '2020-02-24 00:00:01.999999', '-600:59:59', '12:59:59', '1901', '2020' );
 
-
---test string
+-- test string
 create table test_string(
     a1 char(6),
     a2 char,

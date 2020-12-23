@@ -54,8 +54,7 @@ func NewRootCommand(use, short string) *cobra.Command {
 		Short:      short,
 		SuggestFor: []string{use},
 	}
-	rc.PersistentFlags().StringVar(&OpType, "OpType", "", "The OpType can be RecoveryData,"+
-		"RecoveryStruct,PrintData.")
+	rc.PersistentFlags().StringVar(&OpType, "OpType", "", "The OpType can be RecoveryData, RecoveryStruct, PrintData.")
 	rc.PersistentFlags().StringVar(&LogPath, "LogPath", "/tmp", "set the log file path.")
 	rc.PersistentFlags().StringVar(&LogLevel, "LogLevel", "DEBUG", "set the log level.")
 	rc.AddCommand(NewRecoveryCommand())
@@ -106,7 +105,7 @@ func FromDataFile(cmd *cobra.Command, args []string) {
 
 	IsRecovery := false
 
-	p := ibdata.NewParseIB()
+	p := ibdata.NewParse()
 	err := p.ParseDictPage(SysDataFile)
 	if err != nil {
 		fmt.Println(err.Error())
