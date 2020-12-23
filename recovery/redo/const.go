@@ -14,7 +14,6 @@
 
 package redo
 
-
 // The MySQL Innodb redo log block size.
 const (
 	BlockSize = 512
@@ -203,22 +202,22 @@ const (
 // Reference mysql-5.7.19/storage/innobase/include/trx0rec.h
 const (
 	// fresh insert into clustered index
-	TRX_UNDO_INSERT_REC    = 11
+	TRX_UNDO_INSERT_REC = 11
 
 	// update of a non-delete-marked record
 	TRX_UNDO_UPD_EXIST_REC = 12
 
 	// update of a delete marked record to a not delete marked record;
 	// also the fields of the record can change
-	TRX_UNDO_UPD_DEL_REC   = 13
+	TRX_UNDO_UPD_DEL_REC = 13
 
 	// delete marking of a record; fields do not change
-	TRX_UNDO_DEL_MARK_REC   = 14
+	TRX_UNDO_DEL_MARK_REC = 14
 
 	// compilation info is multiplied by this and ORed to the type above
 	TRX_UNDO_CMPL_INFO_MULT = 16
 
 	// This bit can be ORed to type_cmpl to denote that we updated external storage fields:
 	// used by purge to free the external storage
-	TRX_UNDO_UPD_EXTERN     = 128
+	TRX_UNDO_UPD_EXTERN = 128
 )

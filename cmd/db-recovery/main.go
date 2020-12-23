@@ -12,31 +12,19 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package client
+package main
 
 import (
 	"os"
-
-	"github.com/spf13/cobra"
 )
 
+func main() {
+	desc := logo() + cliDescription
+	rootCmd := NewRootCommand(cliName, desc)
 
-const (
-	cliName        = "github.com/zbdba/db-recovery"
-	cliDescription = "A simple command line client for github.com/zbdba/db-recovery."
-)
-
-var rootCmd *cobra.Command
-
-func init() {
-	Desc := PrintLogo() + cliDescription
-	rootCmd = NewRootCommand(cliName, Desc)
-}
-
-func Main() {
 	err := rootCmd.Execute()
 	if err != nil {
-		os.Exit(1)
+		os.Exit(0)
 	}
-	os.Exit(0)
+	os.Exit(-1)
 }

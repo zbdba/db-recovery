@@ -12,20 +12,21 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package client
+package main
 
 var (
-	ProjectName     = "db-recovery"
-	Major           = 1
-	Minor           = 0
-	Patch           = 0
-	GitSHA          = "Not provided"
-	BuildTime       = "Not provided"
+	ProjectName = "db-recovery"
+	Major       = 1
+	Minor       = 0
+	Patch       = 0
+	GitSHA      = "Not provided"
+	BuildTime   = "Not provided"
 )
 
-func PrintLogo() string{
+// db-recovery logo ascii art
+func logo() string {
 	// http://patorjk.com/software/taag/#p=display&f=Slant&t=db-recovery
-	LogoStr := `
+	return `
        ____                                                   
   ____/ / /_        ________  _________ _   _____  _______  __
  / __  / __ \______/ ___/ _ \/ ___/ __ \ | / / _ \/ ___/ / / /
@@ -33,5 +34,4 @@ func PrintLogo() string{
 \__,_/_.___/     /_/   \___/\___/\____/|___/\___/_/   \__, /  
                                                      /____/
 `
-	return LogoStr
 }

@@ -18,8 +18,8 @@ import (
 	"flag"
 	"fmt"
 
+	"github.com/zbdba/db-recovery/recovery/logs"
 	"github.com/zbdba/db-recovery/recovery/redo"
-	"github.com/zbdba/db-recovery/recovery/utils/logs"
 )
 
 func main() {
@@ -32,7 +32,7 @@ func main() {
 		fmt.Println(InitErr)
 	}
 
-	p, err := redo.NewParseRedo("/data/mysql3322/data/ibdata1")
+	p, err := redo.NewParseRedo("/data/mysql3322/data/ibdata1", "", "")
 	//p, err := redo.NewParseRedo("/root/recovery/ibdata1")
 	//p, err := redo.NewParseRedo("/root/online_data_test/2020-01-16-23/ibdata1")
 

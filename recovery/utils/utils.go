@@ -27,7 +27,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/zbdba/db-recovery/recovery/utils/logs"
+	"github.com/zbdba/db-recovery/recovery/logs"
 )
 
 // RecGetStatus reference MySQL rec_get_status method

@@ -21,8 +21,8 @@ import (
 	"strings"
 
 	"github.com/zbdba/db-recovery/recovery/ibdata"
+	"github.com/zbdba/db-recovery/recovery/logs"
 	"github.com/zbdba/db-recovery/recovery/utils"
-	"github.com/zbdba/db-recovery/recovery/utils/logs"
 )
 
 type ParseRedo struct {

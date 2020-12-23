@@ -18,8 +18,8 @@ import (
 	"flag"
 	"fmt"
 
-	pf "github.com/zbdba/db-recovery/recovery/ibdata"
-	"github.com/zbdba/db-recovery/recovery/utils/logs"
+	"github.com/zbdba/db-recovery/recovery/ibdata"
+	"github.com/zbdba/db-recovery/recovery/logs"
 )
 
 func main() {
@@ -32,7 +32,7 @@ func main() {
 		fmt.Println(InitErr)
 	}
 
-	p := pf.NewParseIB()
+	p := ibdata.NewParseIB()
 
 	//err := p.ParseDictPage("/root/online_data_test/2020-01-02-15/ibdata1")
 	//err := p.ParseDictPage("/root/recovery/ibdata1")
@@ -81,7 +81,7 @@ func main() {
 	//f := func(k, v interface{}) bool {
 	//
 	//	fmt.Println(k, v)
-	//	t, ok := v.(pf.Tables)
+	//	t, ok := v.(ibdata.Tables)
 	//	//for _, f := range t.Fields {
 	//	//	fmt.Println(f.FieldName, f.FieldType, f.FieldPos, f.FieldLen)
 	//	//}

@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package client
+package main
 
 import (
 	"flag"
@@ -21,10 +21,15 @@ import (
 	"strings"
 
 	"github.com/zbdba/db-recovery/recovery/ibdata"
+	"github.com/zbdba/db-recovery/recovery/logs"
 	"github.com/zbdba/db-recovery/recovery/redo"
-	"github.com/zbdba/db-recovery/recovery/utils/logs"
 
 	"github.com/spf13/cobra"
+)
+
+const (
+	cliName        = "github.com/zbdba/db-recovery"
+	cliDescription = "A simple command line client for github.com/zbdba/db-recovery."
 )
 
 var (
@@ -179,7 +184,7 @@ func NewVersionCommand() *cobra.Command {
 }
 
 func versionCommandFunc(cmd *cobra.Command, args []string) {
-	fmt.Println(PrintLogo())
+	fmt.Println(logo())
 	fmt.Printf("Project Name:%s\n", ProjectName)
 	fmt.Printf("Version %d.%d.%d\n", Major, Minor, Patch)
 	fmt.Printf("Git SHA: %s\n", GitSHA)

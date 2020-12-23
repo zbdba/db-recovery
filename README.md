@@ -104,7 +104,7 @@ Use "github.com/zbdba/db-recovery recovery [command] --help" for more informatio
 --RedoFile="/data/mysql3322/data/ib_logfile0" \
 --SysDataFile="/data/mysql3322/data/ibdata1" \
 --DBName="type_test" \
---TableName="test5”
+--TableName="test5"
 ```
 
 ## Roadmap
