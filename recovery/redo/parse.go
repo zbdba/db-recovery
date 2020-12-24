@@ -202,18 +202,18 @@ func (parse *Parse) parseRedoBlockData(data []byte) error {
 
 		case MLOG_1BYTE, MLOG_2BYTES, MLOG_4BYTES, MLOG_8BYTES:
 			logs.Debug("start parse MLOG_1BYTE, MLOG_2BYTES, MLOG_4BYTES, MLOG_8BYTES log record")
-			err := parse.MLOG_N_BYTES(data, &pos, logType)
+			err := parse.mlogNBytes(data, &pos, logType)
 			if err != nil {
 				break
 			}
 
 		case MLOG_REC_SEC_DELETE_MARK:
 			logs.Debug("start parse MLOG_REC_SEC_DELETE_MARK log record")
-			parse.MLOG_REC_SEC_DELETE_MARK(data, &pos)
+			parse.mlogRecSecDeleteMark(data, &pos)
 
 		case MLOG_UNDO_INSERT:
 			logs.Debug("start parse MLOG_UNDO_INSERT log record")
-			err := parse.MLOG_UNDO_INSERT(data, &pos)
+			err := parse.mlogUndoInsert(data, &pos)
 			if err != nil {
 				break
 			}
@@ -224,7 +224,7 @@ func (parse *Parse) parseRedoBlockData(data []byte) error {
 
 		case MLOG_UNDO_INIT:
 			logs.Debug("start parse MLOG_UNDO_INIT log record")
-			err := parse.MLOG_UNDO_INIT(data, &pos)
+			err := parse.mlogUndoInit(data, &pos)
 			if err != nil {
 				break
 			}
@@ -234,11 +234,11 @@ func (parse *Parse) parseRedoBlockData(data []byte) error {
 
 		case MLOG_UNDO_HDR_REUSE:
 			logs.Debug("start parse MLOG_UNDO_HDR_REUSE log record")
-			parse.MLOG_UNDO_HDR_REUSE(data, &pos)
+			parse.mlogUndoHdrReuse(data, &pos)
 
 		case MLOG_UNDO_HDR_CREATE:
 			logs.Debug("start parse MLOG_UNDO_HDR_CREATE log record")
-			err := parse.MLOG_UNDO_HDR_CREATE(data, &pos)
+			err := parse.mlogUndoHdrCreate(data, &pos)
 			if err != nil {
 				break
 			}
@@ -254,7 +254,7 @@ func (parse *Parse) parseRedoBlockData(data []byte) error {
 
 		case MLOG_WRITE_STRING:
 			logs.Debug("start parse MLOG_WRITE_STRING log record")
-			parse.MLOG_WRITE_STRING(data, &pos)
+			parse.mlogWriteString(data, &pos)
 
 		case MLOG_MULTI_REC_END:
 			logs.Debug("start parse MLOG_MULTI_REC_END log record")
@@ -269,7 +269,7 @@ func (parse *Parse) parseRedoBlockData(data []byte) error {
 			MLOG_FILE_RENAME2, MLOG_FILE_NAME:
 			logs.Debug("start parse MLOG_FILE_RENAME, MLOG_FILE_CREATE, " +
 				"MLOG_FILE_DELETE, MLOG_FILE_CREATE2 log record")
-			parse.MLOG_FILE_OP(data, &pos, logType)
+			parse.mlogFileOp(data, &pos, logType)
 
 		case MLOG_REC_MIN_MARK, MLOG_COMP_REC_MIN_MARK:
 			logs.Debug("start parse MLOG_REC_MIN_MARK, MLOG_COMP_REC_MIN_MARK log record")
@@ -281,35 +281,35 @@ func (parse *Parse) parseRedoBlockData(data []byte) error {
 
 		case MLOG_REC_INSERT, MLOG_COMP_REC_INSERT:
 			logs.Debug("start parse MLOG_REC_INSERT, MLOG_COMP_REC_INSERT log record")
-			err := parse.MLOG_REC_INSERT(data, &pos, logType)
+			err := parse.mlogRecInsert(data, &pos, logType)
 			if err != nil {
 				return err
 			}
 
 		case MLOG_REC_CLUST_DELETE_MARK, MLOG_COMP_REC_CLUST_DELETE_MARK:
 			logs.Debug("start parse MLOG_REC_CLUST_DELETE_MARK, MLOG_COMP_REC_CLUST_DELETE_MARK log record")
-			err := parse.MLOG_REC_CLUST_DELETE_MARK(data, &pos, logType)
+			err := parse.mlogRecClustDeleteMark(data, &pos, logType)
 			if err != nil {
 				break
 			}
 
 		case MLOG_COMP_REC_SEC_DELETE_MARK:
 			logs.Debug("start parse MLOG_COMP_REC_SEC_DELETE_MARK log record")
-			err := parse.MLOG_COMP_REC_SEC_DELETE_MARK(data, &pos)
+			err := parse.mlogCompRecSecDeleteMark(data, &pos)
 			if err != nil {
 				break
 			}
 
 		case MLOG_REC_UPDATE_IN_PLACE, MLOG_COMP_REC_UPDATE_IN_PLACE:
 			logs.Debug("start parse MLOG_REC_UPDATE_IN_PLACE, MLOG_COMP_REC_UPDATE_IN_PLACE log record")
-			err := parse.MLOG_REC_UPDATE_IN_PLACE(data, &pos, logType)
+			err := parse.mlogRecUpdateInPlace(data, &pos, logType)
 			if err != nil {
 				break
 			}
 
 		case MLOG_REC_DELETE, MLOG_COMP_REC_DELETE:
 			logs.Debug("start parse MLOG_REC_DELETE, MLOG_COMP_REC_DELETE log record")
-			err := parse.MLOG_REC_DELETE(data, &pos, logType)
+			err := parse.mlogRecDelete(data, &pos, logType)
 			if err != nil {
 				break
 			}
@@ -320,14 +320,14 @@ func (parse *Parse) parseRedoBlockData(data []byte) error {
 			MLOG_COMP_LIST_START_DELETE:
 			logs.Debug("start parse MLOG_LIST_END_DELETE,MLOG_COMP_LIST_END_DELETE," +
 				"MLOG_LIST_START_DELETE,MLOG_COMP_LIST_START_DELETE log record")
-			err := parse.MLOG_LIST_DELETE(data, &pos, logType)
+			err := parse.mlogListDelete(data, &pos, logType)
 			if err != nil {
 				break
 			}
 
 		case MLOG_LIST_END_COPY_CREATED, MLOG_COMP_LIST_END_COPY_CREATED:
 			logs.Debug("start parse MLOG_LIST_END_COPY_CREATED, MLOG_COMP_LIST_END_COPY_CREATED log record")
-			err := parse.MLOG_LIST_END_COPY_CREATED(data, &pos, logType)
+			err := parse.mlogListEndCopyCreated(data, &pos, logType)
 			if err != nil {
 				break
 			}
@@ -335,14 +335,14 @@ func (parse *Parse) parseRedoBlockData(data []byte) error {
 		case MLOG_PAGE_REORGANIZE, MLOG_COMP_PAGE_REORGANIZE, MLOG_ZIP_PAGE_REORGANIZE:
 			logs.Debug("start parse MLOG_PAGE_REORGANIZE, MLOG_COMP_PAGE_REORGANIZE, " +
 				"MLOG_ZIP_PAGE_REORGANIZE log record")
-			err := parse.MLOG_PAGE_REORGANIZE(data, &pos, logType)
+			err := parse.mlogPageReorganize(data, &pos, logType)
 			if err != nil {
 				break
 			}
 
 		case MLOG_ZIP_WRITE_NODE_PTR:
 			logs.Debug("start parse MLOG_ZIP_WRITE_NODE_PTR log record")
-			parse.MLOG_ZIP_WRITE_NODE_PTR(data, &pos)
+			parse.mlogZipWriteNodePtr(data, &pos)
 
 		case MLOG_ZIP_WRITE_BLOB_PTR:
 			logs.Debug("start parse MLOG_ZIP_WRITE_BLOB_PTR log record")
@@ -350,15 +350,15 @@ func (parse *Parse) parseRedoBlockData(data []byte) error {
 
 		case MLOG_ZIP_WRITE_HEADER:
 			logs.Debug("start parse MLOG_ZIP_WRITE_HEADER log record")
-			parse.MLOG_ZIP_WRITE_HEADER(data, &pos)
+			parse.mlogZipWriteHeader(data, &pos)
 
 		case MLOG_ZIP_PAGE_COMPRESS:
 			logs.Debug("start parse MLOG_ZIP_PAGE_COMPRESS log record")
-			parse.MLOG_ZIP_PAGE_COMPRESS(data, &pos)
+			parse.mlogZipPageCompress(data, &pos)
 
 		case MLOG_ZIP_PAGE_COMPRESS_NO_DATA:
 			logs.Debug("start parse MLOG_ZIP_PAGE_COMPRESS_NO_DATA log record")
-			err := parse.MLOG_ZIP_PAGE_COMPRESS_NO_DATA(data, &pos)
+			err := parse.mlogZipPageCompressNoData(data, &pos)
 			if err != nil {
 				break
 			}
@@ -484,84 +484,58 @@ func (parse *Parse) getTableBySpaceID(spaceID uint64) (ibdata.Tables, error) {
 
 func (parse *Parse) validateLogHeader(LogType uint64, SpaceID uint64) bool {
 
-	HaveType := true
+	haveType := true
 
 	switch LogType {
-
 	case MLOG_1BYTE, MLOG_2BYTES, MLOG_4BYTES, MLOG_8BYTES:
-
 	case MLOG_REC_SEC_DELETE_MARK:
-
 	case MLOG_UNDO_INSERT:
-
 	case MLOG_UNDO_ERASE_END:
-
 	case MLOG_UNDO_INIT:
 	case MLOG_UNDO_HDR_DISCARD:
-
 	case MLOG_UNDO_HDR_REUSE:
-
 	case MLOG_UNDO_HDR_CREATE:
-
 	case MLOG_IBUF_BITMAP_INIT:
-
 	case MLOG_INIT_FILE_PAGE, MLOG_INIT_FILE_PAGE2:
-
 	case MLOG_WRITE_STRING:
-
 	case MLOG_MULTI_REC_END:
-
 	case MLOG_DUMMY_RECORD:
-
 	case MLOG_FILE_RENAME, MLOG_FILE_CREATE,
 		MLOG_FILE_DELETE, MLOG_FILE_CREATE2,
 		MLOG_FILE_RENAME2, MLOG_FILE_NAME:
-
 	case MLOG_REC_MIN_MARK, MLOG_COMP_REC_MIN_MARK:
-
 	case MLOG_PAGE_CREATE, MLOG_COMP_PAGE_CREATE:
-
 	case MLOG_REC_INSERT, MLOG_COMP_REC_INSERT:
-
 	case MLOG_REC_CLUST_DELETE_MARK, MLOG_COMP_REC_CLUST_DELETE_MARK:
 	case MLOG_COMP_REC_SEC_DELETE_MARK:
-
 	case MLOG_REC_UPDATE_IN_PLACE, MLOG_COMP_REC_UPDATE_IN_PLACE:
-
 	case MLOG_REC_DELETE, MLOG_COMP_REC_DELETE:
-
 	case MLOG_LIST_END_DELETE,
 		MLOG_COMP_LIST_END_DELETE,
 		MLOG_LIST_START_DELETE,
 		MLOG_COMP_LIST_START_DELETE:
-
 	case MLOG_LIST_END_COPY_CREATED, MLOG_COMP_LIST_END_COPY_CREATED:
-
 	case MLOG_PAGE_REORGANIZE, MLOG_COMP_PAGE_REORGANIZE, MLOG_ZIP_PAGE_REORGANIZE:
-
 	case MLOG_ZIP_WRITE_NODE_PTR:
 	case MLOG_ZIP_WRITE_BLOB_PTR:
-
 	case MLOG_ZIP_WRITE_HEADER:
-
 	case MLOG_ZIP_PAGE_COMPRESS:
-
 	case MLOG_ZIP_PAGE_COMPRESS_NO_DATA:
 	case MLOG_CHECKPOINT:
 	case MLOG_COMP_PAGE_CREATE_RTREE, MLOG_PAGE_CREATE_RTREE:
 	case MLOG_TRUNCATE:
 	case MLOG_INDEX_LOAD:
 	default:
-		HaveType = false
+		haveType = false
 		break
 	}
 
 	//_, err := parse.getTableBySpaceID(SpaceID)
-	//if err != nil || !HaveType {
+	//if err != nil || !haveType {
 	//	return false
 	//}
 
-	return HaveType
+	return haveType
 }
 
 func (parse *Parse) makeSQL(table ibdata.Tables, primaryColumns []*ibdata.Fields, columns []*ibdata.Columns) {
@@ -584,20 +558,20 @@ func (parse *Parse) makeSQL(table ibdata.Tables, primaryColumns []*ibdata.Fields
 		}
 	}
 
-	var WhereConditions string
+	var whereConditions string
 
 	for j, v := range primaryColumns {
-		WhereCondition := fmt.Sprintf("`%s`='%v'", v.ColumnName, v.ColumnValue)
+		whereCondition := fmt.Sprintf("`%s`='%v'", v.ColumnName, v.ColumnValue)
 		if j == (len(primaryColumns) - 1) {
-			WhereConditions += WhereCondition
+			whereConditions += whereCondition
 		} else {
-			WhereConditions += WhereCondition + " and "
+			whereConditions += whereCondition + " and "
 		}
 	}
 
-	Query := fmt.Sprintf("update `%s`.`%s` set %s where %s;", table.DBName,
-		table.TableName, SetValues, WhereConditions)
+	query := fmt.Sprintf("update `%s`.`%s` set %s where %s;", table.DBName,
+		table.TableName, SetValues, whereConditions)
 
-	logs.Debug("query is ", Query)
-	fmt.Println(Query)
+	logs.Debug("query is ", query)
+	fmt.Println(query)
 }
