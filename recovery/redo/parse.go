@@ -16,13 +16,11 @@ package redo
 
 import (
 	"fmt"
-	"io"
-	"os"
-	"strings"
-
 	"github.com/zbdba/db-recovery/recovery/ibdata"
 	"github.com/zbdba/db-recovery/recovery/logs"
 	"github.com/zbdba/db-recovery/recovery/utils"
+	"io"
+	"os"
 )
 
 // Parse for redo log
@@ -73,12 +71,12 @@ func (parse *Parse) ParseRedoLogs(logFileList []string) error {
 		}
 
 		// Parse read redo log header
-		if err = parse.ReadHeader(file); err != nil {
+		if err = parse.readHeader(file); err != nil {
 			return err
 		}
 
 		// Parse read redo log checkpoint
-		if err = parse.ReadCheckpoint(file); err != nil {
+		if err = parse.readCheckpoint(file); err != nil {
 			return err
 		}
 
@@ -100,15 +98,15 @@ func (parse *Parse) ParseRedoLogs(logFileList []string) error {
 
 			// Parse the redo block header.
 			// The redo block consists of redo log header and redo log data.
-			DataLen, FirstRecord, ReadErr := parse.ReadRedoBlockHeader(&pos, d)
-			if ReadErr != nil || DataLen == 0 {
+			dataLen, firstRecord, readErr := parse.readRedoBlockHeader(&pos, d)
+			if readErr != nil || dataLen == 0 {
 				break
 			}
 
 			// LOG_BLOCK_TRL_SIZE, for checksum.
-			if DataLen >= BlockSize {
+			if dataLen >= BlockSize {
 				// TODO: const
-				DataLen -= 4
+				dataLen -= 4
 			}
 
 			// Sometimes the first block may not be the beginning of the log record,
@@ -116,22 +114,22 @@ func (parse *Parse) ParseRedoLogs(logFileList []string) error {
 			// when we parse directly. At this time, we will start parsing directly
 			// from the position specified by first record. If first record
 			// is equal to 0, this block is used by all previous log records, we just skip it.
-			if len(data) == 0 && FirstRecord == uint64(0) {
+			if len(data) == 0 && firstRecord == uint64(0) {
 				continue
 			}
 
-			if len(data) == 0 && FirstRecord > 12 {
-				pos += FirstRecord - 12
+			if len(data) == 0 && firstRecord > 12 {
+				pos += firstRecord - 12
 			}
 
 			// Add all redo block data.
-			data = append(data, d[pos:DataLen]...)
+			data = append(data, d[pos:dataLen]...)
 		}
 		file.Close()
 	}
 
 	// Start parse redo log data.
-	err := parse.ParseRedoBlockData(data)
+	err := parse.parseRedoBlockData(data)
 	if err != nil {
 		logs.Error("parse redo block data failed, error: ", err.Error())
 	}
@@ -142,7 +140,7 @@ func (parse *Parse) ParseRedoLogs(logFileList []string) error {
 // There are about 55 redo log type, and every redo log type have different data.
 // We just want get the MLOG_UNDO_INSERT type redo record which store the undo info.
 // But due to the design of redo, we must parse out each type in order.
-func (parse *Parse) ParseRedoBlockData(data []byte) error {
+func (parse *Parse) parseRedoBlockData(data []byte) error {
 	var pos uint64
 	for {
 		if (int64(len(data)) - int64(pos)) < 5 {
@@ -153,23 +151,22 @@ func (parse *Parse) ParseRedoBlockData(data []byte) error {
 		}
 
 		// Read initial log record.
-		LogType := utils.MatchReadFrom1(data[pos:])
+		logType := utils.MatchReadFrom1(data[pos:])
 		pos++
-		StartPos := pos
+		startPos := pos
 
-		if LogType == MLOG_MULTI_REC_END {
+		if logType == MLOG_MULTI_REC_END {
 			// don't parse MLOG_MULTI_REC_END type redo log.
 			continue
 		}
 
 		// Get redo log type.
-		MLOG_SINGLE_REC_FLAG := 128
-		LogType = uint64(int(LogType) & ^MLOG_SINGLE_REC_FLAG)
+		logType = uint64(int(logType) & ^MLOG_SINGLE_REC_FLAG)
 
-		if LogType != MLOG_CHECKPOINT {
+		if logType != MLOG_CHECKPOINT {
 
 			// Get space id
-			SpaceID, num, err := utils.MatchParseCompressed(data, pos)
+			spaceID, num, err := utils.MatchParseCompressed(data, pos)
 			pos += num
 			if err != nil {
 				logs.Error("get log record space id failed, the error is ", err)
@@ -177,35 +174,35 @@ func (parse *Parse) ParseRedoBlockData(data []byte) error {
 
 			}
 			// Get the page no
-			PageNo, num, err := utils.MatchParseCompressed(data, pos)
+			pageNo, num, err := utils.MatchParseCompressed(data, pos)
 			pos += num
 			if err != nil {
 				logs.Error("get log record page number failed, the error is ", err)
 				return err
 			}
 
-			if !parse.ValidateLogHeader(LogType, SpaceID) {
-				pos = StartPos
+			if !parse.validateLogHeader(logType, spaceID) {
+				pos = startPos
 				continue
 			}
 
-			logs.Debug("LogType is:", LogType, "SpaceID is:", SpaceID, "PageNo is:", PageNo)
+			logs.Debug("logType is:", logType, "spaceID is:", spaceID, "pageNo is:", pageNo)
 
-			Table, err := parse.GetTableBySpaceID(SpaceID)
+			table, err := parse.getTableBySpaceID(spaceID)
 			if err != nil {
-				logs.Error("can't find table, space id is ", SpaceID)
+				logs.Error("can't find table, space id is ", spaceID)
 			} else {
-				logs.Debug("Table name is ", Table.TableName)
+				logs.Debug("table name is ", table.TableName)
 			}
 		} else {
-			logs.Debug("LogType is:", LogType)
+			logs.Debug("logType is:", logType)
 		}
 
-		switch LogType {
+		switch logType {
 
 		case MLOG_1BYTE, MLOG_2BYTES, MLOG_4BYTES, MLOG_8BYTES:
 			logs.Debug("start parse MLOG_1BYTE, MLOG_2BYTES, MLOG_4BYTES, MLOG_8BYTES log record")
-			err := parse.MLOG_N_BYTES(data, &pos, LogType)
+			err := parse.MLOG_N_BYTES(data, &pos, logType)
 			if err != nil {
 				break
 			}
@@ -272,7 +269,7 @@ func (parse *Parse) ParseRedoBlockData(data []byte) error {
 			MLOG_FILE_RENAME2, MLOG_FILE_NAME:
 			logs.Debug("start parse MLOG_FILE_RENAME, MLOG_FILE_CREATE, " +
 				"MLOG_FILE_DELETE, MLOG_FILE_CREATE2 log record")
-			parse.MLOG_FILE_OP(data, &pos, LogType)
+			parse.MLOG_FILE_OP(data, &pos, logType)
 
 		case MLOG_REC_MIN_MARK, MLOG_COMP_REC_MIN_MARK:
 			logs.Debug("start parse MLOG_REC_MIN_MARK, MLOG_COMP_REC_MIN_MARK log record")
@@ -284,14 +281,14 @@ func (parse *Parse) ParseRedoBlockData(data []byte) error {
 
 		case MLOG_REC_INSERT, MLOG_COMP_REC_INSERT:
 			logs.Debug("start parse MLOG_REC_INSERT, MLOG_COMP_REC_INSERT log record")
-			err := parse.MLOG_REC_INSERT(data, &pos, LogType)
+			err := parse.MLOG_REC_INSERT(data, &pos, logType)
 			if err != nil {
 				return err
 			}
 
 		case MLOG_REC_CLUST_DELETE_MARK, MLOG_COMP_REC_CLUST_DELETE_MARK:
 			logs.Debug("start parse MLOG_REC_CLUST_DELETE_MARK, MLOG_COMP_REC_CLUST_DELETE_MARK log record")
-			err := parse.MLOG_REC_CLUST_DELETE_MARK(data, &pos, LogType)
+			err := parse.MLOG_REC_CLUST_DELETE_MARK(data, &pos, logType)
 			if err != nil {
 				break
 			}
@@ -305,14 +302,14 @@ func (parse *Parse) ParseRedoBlockData(data []byte) error {
 
 		case MLOG_REC_UPDATE_IN_PLACE, MLOG_COMP_REC_UPDATE_IN_PLACE:
 			logs.Debug("start parse MLOG_REC_UPDATE_IN_PLACE, MLOG_COMP_REC_UPDATE_IN_PLACE log record")
-			err := parse.MLOG_REC_UPDATE_IN_PLACE(data, &pos, LogType)
+			err := parse.MLOG_REC_UPDATE_IN_PLACE(data, &pos, logType)
 			if err != nil {
 				break
 			}
 
 		case MLOG_REC_DELETE, MLOG_COMP_REC_DELETE:
 			logs.Debug("start parse MLOG_REC_DELETE, MLOG_COMP_REC_DELETE log record")
-			err := parse.MLOG_REC_DELETE(data, &pos, LogType)
+			err := parse.MLOG_REC_DELETE(data, &pos, logType)
 			if err != nil {
 				break
 			}
@@ -323,14 +320,14 @@ func (parse *Parse) ParseRedoBlockData(data []byte) error {
 			MLOG_COMP_LIST_START_DELETE:
 			logs.Debug("start parse MLOG_LIST_END_DELETE,MLOG_COMP_LIST_END_DELETE," +
 				"MLOG_LIST_START_DELETE,MLOG_COMP_LIST_START_DELETE log record")
-			err := parse.MLOG_LIST_DELETE(data, &pos, LogType)
+			err := parse.MLOG_LIST_DELETE(data, &pos, logType)
 			if err != nil {
 				break
 			}
 
 		case MLOG_LIST_END_COPY_CREATED, MLOG_COMP_LIST_END_COPY_CREATED:
 			logs.Debug("start parse MLOG_LIST_END_COPY_CREATED, MLOG_COMP_LIST_END_COPY_CREATED log record")
-			err := parse.MLOG_LIST_END_COPY_CREATED(data, &pos, LogType)
+			err := parse.MLOG_LIST_END_COPY_CREATED(data, &pos, logType)
 			if err != nil {
 				break
 			}
@@ -338,7 +335,7 @@ func (parse *Parse) ParseRedoBlockData(data []byte) error {
 		case MLOG_PAGE_REORGANIZE, MLOG_COMP_PAGE_REORGANIZE, MLOG_ZIP_PAGE_REORGANIZE:
 			logs.Debug("start parse MLOG_PAGE_REORGANIZE, MLOG_COMP_PAGE_REORGANIZE, " +
 				"MLOG_ZIP_PAGE_REORGANIZE log record")
-			err := parse.MLOG_PAGE_REORGANIZE(data, &pos, LogType)
+			err := parse.MLOG_PAGE_REORGANIZE(data, &pos, logType)
 			if err != nil {
 				break
 			}
@@ -383,7 +380,7 @@ func (parse *Parse) ParseRedoBlockData(data []byte) error {
 			pos += 8
 			break
 		default:
-			logs.Debug("unkown rMLOG_REC_UPDATE_IN_PLACEedo type, break.")
+			logs.Debug("unknown rMLOG_REC_UPDATE_IN_PLACEedo type, break.")
 			break
 		}
 	}
@@ -391,50 +388,50 @@ func (parse *Parse) ParseRedoBlockData(data []byte) error {
 }
 
 // Parse the redo block header.
-func (parse *Parse) ReadRedoBlockHeader(pos *uint64, d []byte) (uint64, uint64, error) {
+func (parse *Parse) readRedoBlockHeader(pos *uint64, d []byte) (uint64, uint64, error) {
 
-	LogBlockNo := utils.MatchReadFrom4(d)
+	logBlockNo := utils.MatchReadFrom4(d)
 	*pos += 4
 
-	DataLen := utils.MatchReadFrom2(d[*pos:])
+	dataLen := utils.MatchReadFrom2(d[*pos:])
 	*pos += 2
 
-	FirstRecord := utils.MatchReadFrom2(d[*pos:])
+	firstRecord := utils.MatchReadFrom2(d[*pos:])
 	*pos += 2
 
-	CheckpointNo := utils.MatchReadFrom4(d[*pos:])
+	checkpointNo := utils.MatchReadFrom4(d[*pos:])
 	*pos += 4
 
 	logs.Debug("==================================")
-	logs.Debug("LogBlockNo:", LogBlockNo)
-	logs.Debug("DataLen:", DataLen)
-	logs.Debug("FirstRecord:", FirstRecord)
-	logs.Debug("CheckpointNo:", CheckpointNo)
+	logs.Debug("logBlockNo:", logBlockNo)
+	logs.Debug("dataLen:", dataLen)
+	logs.Debug("firstRecord:", firstRecord)
+	logs.Debug("checkpointNo:", checkpointNo)
 	logs.Debug("==================================")
 	logs.Debug("")
 
-	return DataLen, FirstRecord, nil
+	return dataLen, firstRecord, nil
 }
 
-func (parse *Parse) ReadHeader(file *os.File) error {
+func (parse *Parse) readHeader(file *os.File) error {
 
 	pos := 0
-	data, err1 := utils.ReadNextBytes(file, 512)
-	if err1 != nil {
-		return err1
+	data, err := utils.ReadNextBytes(file, 512)
+	if err != nil {
+		return err
 	}
 
-	LOG_HEADER_FORMAT := utils.MatchReadFrom4(data[pos:])
-	logs.Debug("LOG_HEADER_FORMAT is ", LOG_HEADER_FORMAT)
+	logHeaderFormat := utils.MatchReadFrom4(data[pos:])
+	logs.Debug("LOG_HEADER_FORMAT is ", logHeaderFormat)
 	pos += 8
 
-	LOG_HEADER_START_LSN := utils.MatchReadFrom8(data[pos:])
-	logs.Debug("LOG_HEADER_START_LSN is ", LOG_HEADER_START_LSN)
+	logHeaderStartLsn := utils.MatchReadFrom8(data[pos:])
+	logs.Debug("LOG_HEADER_START_LSN is ", logHeaderStartLsn)
 
 	return nil
 }
 
-func (parse *Parse) ReadCheckpoint(file *os.File) error {
+func (parse *Parse) readCheckpoint(file *os.File) error {
 
 	checkpoint := Checkpoint{}
 	const cpsize = 512
@@ -451,7 +448,7 @@ func (parse *Parse) ReadCheckpoint(file *os.File) error {
 	//fmt.Printf("ArchivedLSN: 0x%X\n", checkpoint.ArchivedLSN)
 	//fmt.Printf("Checksum1  : 0x%X\n", checkpoint.Checksum1)
 	//fmt.Printf("Checksum2  : 0x%X\n", checkpoint.Checksum2)
-	//fmt.Printf("CurentFSP  : 0x%X\n", checkpoint.CuurentFSP)
+	//fmt.Printf("CurrentFSP  : 0x%X\n", checkpoint.CurrentFSP)
 	//fmt.Printf("Magic      : 0x%X\n", checkpoint.Magic)
 
 	checkpoint2 := Checkpoint{}
@@ -468,7 +465,7 @@ func (parse *Parse) ReadCheckpoint(file *os.File) error {
 	//fmt.Printf("ArchivedLSN: 0x%X\n", checkpoint2.ArchivedLSN)
 	//fmt.Printf("Checksum1  : 0x%X\n", checkpoint2.Checksum1)
 	//fmt.Printf("Checksum2  : 0x%X\n", checkpoint2.Checksum2)
-	//fmt.Printf("CurentFSP  : 0x%X\n", checkpoint2.CuurentFSP)
+	//fmt.Printf("CurrentFSP  : 0x%X\n", checkpoint2.CurrentFSP)
 	//fmt.Printf("Magic      : 0x%X\n", checkpoint2.Magic)
 	//fmt.Println()
 	//fmt.Println()
@@ -476,103 +473,98 @@ func (parse *Parse) ReadCheckpoint(file *os.File) error {
 	return nil
 }
 
-func (parse *Parse) MLOG_N_BYTES(data []byte, pos *uint64, MyType uint64) error {
-
-	offset := utils.MatchReadFrom2(data[*pos:])
-	logs.Debug("offset is", offset, "pos is ", *pos, " data len is ", len(data))
-
-	*pos += 2
-
-	if MyType == MLOG_8BYTES {
-		value, _, err := utils.MatchParseCompressed(data, *pos)
-		if err != nil {
-			return err
-		}
-
-		size, err := utils.MatchGetCompressedSize(value)
-		if err != nil {
-			return err
-		}
-		*pos += size
-		*pos += 4
-	} else {
-		_, num, err := utils.MatchParseCompressed(data, *pos)
-		*pos += num
-		if err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-func (parse *Parse) MLOG_REC_SEC_DELETE_MARK(data []byte, pos *uint64) {
-
-	value := utils.MatchReadFrom1(data[*pos:])
-	*pos++
-
-	offset := utils.MatchReadFrom2(data[*pos:])
-	*pos += 2
-
-	logs.Debug("values is ", value, " offset is ", offset)
-}
-
-func (parse *Parse) GetPrimaryKey(Table ibdata.Tables) ([]*ibdata.Fields, error) {
-
-	var fields []*ibdata.Fields
-
-	for _, idx := range Table.Indexes {
-		if strings.TrimSpace(idx.Name) == "PRIMARY" || strings.TrimSpace(idx.Name) == "GEN_CLUST_INDEX" {
-			if strings.TrimSpace(idx.Name) == "GEN_CLUST_INDEX" {
-				fields = []*ibdata.Fields{&ibdata.Fields{ColumnPos: 0, ColumnName: "DB_ROW_ID"}}
-			} else {
-				fields = idx.Fields
-			}
-		}
-	}
-	return fields, nil
-}
-
-func (parse *Parse) GetColumnsByName(table ibdata.Tables, FieldName string) ibdata.Columns {
-	for _, c := range table.Columns {
-		if c.FieldName == FieldName {
-			return c
-		}
-	}
-	return ibdata.Columns{}
-}
-
-func (parse *Parse) GetColumnByPos(Table ibdata.Tables, Pos uint64) (*ibdata.Columns, error) {
-	for i, c := range Table.Columns {
-		if uint64(i) == Pos {
-			return &c, nil
-		}
-	}
-	logs.Error("table ", Table.TableName, " have not found field pos ", Pos)
-	return &ibdata.Columns{}, fmt.Errorf("field not found")
-}
-
-func (parse *Parse) GetTableByTableID(TableID uint64) (ibdata.Tables, error) {
-	v, ok := parse.TableMap[TableID]
-	if ok {
-		t := v
-		return t, nil
-	} else {
-		ErrMsg := fmt.Sprintf("table not found, table id is %d", TableID)
-		logs.Debug(ErrMsg)
-		return ibdata.Tables{}, fmt.Errorf(ErrMsg)
-	}
-}
-
-func (parse *Parse) GetTableBySpaceID(SpaceID uint64) (ibdata.Tables, error) {
+func (parse *Parse) getTableBySpaceID(spaceID uint64) (ibdata.Tables, error) {
 	for _, table := range parse.TableMap {
-		if table.SpaceId == SpaceID {
+		if table.SpaceId == spaceID {
 			return table, nil
 		}
 	}
 	return ibdata.Tables{}, fmt.Errorf("can't find table")
 }
 
-func (parse *Parse) MakeSQL(table ibdata.Tables, PrimaryColumns []*ibdata.Fields, columns []*ibdata.Columns) {
+func (parse *Parse) validateLogHeader(LogType uint64, SpaceID uint64) bool {
+
+	HaveType := true
+
+	switch LogType {
+
+	case MLOG_1BYTE, MLOG_2BYTES, MLOG_4BYTES, MLOG_8BYTES:
+
+	case MLOG_REC_SEC_DELETE_MARK:
+
+	case MLOG_UNDO_INSERT:
+
+	case MLOG_UNDO_ERASE_END:
+
+	case MLOG_UNDO_INIT:
+	case MLOG_UNDO_HDR_DISCARD:
+
+	case MLOG_UNDO_HDR_REUSE:
+
+	case MLOG_UNDO_HDR_CREATE:
+
+	case MLOG_IBUF_BITMAP_INIT:
+
+	case MLOG_INIT_FILE_PAGE, MLOG_INIT_FILE_PAGE2:
+
+	case MLOG_WRITE_STRING:
+
+	case MLOG_MULTI_REC_END:
+
+	case MLOG_DUMMY_RECORD:
+
+	case MLOG_FILE_RENAME, MLOG_FILE_CREATE,
+		MLOG_FILE_DELETE, MLOG_FILE_CREATE2,
+		MLOG_FILE_RENAME2, MLOG_FILE_NAME:
+
+	case MLOG_REC_MIN_MARK, MLOG_COMP_REC_MIN_MARK:
+
+	case MLOG_PAGE_CREATE, MLOG_COMP_PAGE_CREATE:
+
+	case MLOG_REC_INSERT, MLOG_COMP_REC_INSERT:
+
+	case MLOG_REC_CLUST_DELETE_MARK, MLOG_COMP_REC_CLUST_DELETE_MARK:
+	case MLOG_COMP_REC_SEC_DELETE_MARK:
+
+	case MLOG_REC_UPDATE_IN_PLACE, MLOG_COMP_REC_UPDATE_IN_PLACE:
+
+	case MLOG_REC_DELETE, MLOG_COMP_REC_DELETE:
+
+	case MLOG_LIST_END_DELETE,
+		MLOG_COMP_LIST_END_DELETE,
+		MLOG_LIST_START_DELETE,
+		MLOG_COMP_LIST_START_DELETE:
+
+	case MLOG_LIST_END_COPY_CREATED, MLOG_COMP_LIST_END_COPY_CREATED:
+
+	case MLOG_PAGE_REORGANIZE, MLOG_COMP_PAGE_REORGANIZE, MLOG_ZIP_PAGE_REORGANIZE:
+
+	case MLOG_ZIP_WRITE_NODE_PTR:
+	case MLOG_ZIP_WRITE_BLOB_PTR:
+
+	case MLOG_ZIP_WRITE_HEADER:
+
+	case MLOG_ZIP_PAGE_COMPRESS:
+
+	case MLOG_ZIP_PAGE_COMPRESS_NO_DATA:
+	case MLOG_CHECKPOINT:
+	case MLOG_COMP_PAGE_CREATE_RTREE, MLOG_PAGE_CREATE_RTREE:
+	case MLOG_TRUNCATE:
+	case MLOG_INDEX_LOAD:
+	default:
+		HaveType = false
+		break
+	}
+
+	//_, err := parse.getTableBySpaceID(SpaceID)
+	//if err != nil || !HaveType {
+	//	return false
+	//}
+
+	return HaveType
+}
+
+func (parse *Parse) makeSQL(table ibdata.Tables, primaryColumns []*ibdata.Fields, columns []*ibdata.Columns) {
 
 	// TODO: deal with null value.
 
@@ -594,9 +586,9 @@ func (parse *Parse) MakeSQL(table ibdata.Tables, PrimaryColumns []*ibdata.Fields
 
 	var WhereConditions string
 
-	for j, v := range PrimaryColumns {
+	for j, v := range primaryColumns {
 		WhereCondition := fmt.Sprintf("`%s`='%v'", v.ColumnName, v.ColumnValue)
-		if j == (len(PrimaryColumns) - 1) {
+		if j == (len(primaryColumns) - 1) {
 			WhereConditions += WhereCondition
 		} else {
 			WhereConditions += WhereCondition + " and "

@@ -14,7 +14,7 @@
 
 package redo
 
-// The MySQL Innodb redo file checkpoint info.
+// Checkpoint the MySQL Innodb redo file checkpoint info.
 type Checkpoint struct {
 	// 0x00 8 Log checkpoint number
 	Number uint64
@@ -45,7 +45,7 @@ type Checkpoint struct {
 	// 0x128 4 Current fsp free limit in tablespace 0, given in units of one megabyte;
 	// used by ibbackup to decide if unused ends of non-auto-extending data files in
 	// space 0 can be truncated [20]
-	CuurentFSP uint32
+	CurrentFSP uint32
 
 	// 0x12C 4 Magic number that tells if the checkpoint contains the field
 	// above (added to InnoDB version 3.23.50 [20])
@@ -55,7 +55,7 @@ type Checkpoint struct {
 	_ [208]byte
 }
 
-// The MySQL Innodb redo block
+// LogBlock the MySQL Innodb redo block
 type LogBlock struct {
 	// 0x00 Log block header number. If the most significant bit is 1,
 	// the following block is the first block in a log flush write segment. [20].

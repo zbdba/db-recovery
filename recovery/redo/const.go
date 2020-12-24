@@ -20,182 +20,209 @@ const (
 )
 
 // The MySQL Innodb redo record type.
+// storage/innobase/include/mtr0types.h
+// unittest/gunit/innodb/lob/mtr0types.h
 const (
-	MLOG_1BYTE uint64 = iota + 1
-	MLOG_2BYTES
-	_
-	MLOG_4BYTES
-	_
-	_
-	_
-	MLOG_8BYTES
-	// record insert
-	MLOG_REC_INSERT
+	/** if the mtr contains only one log record for one page,
+	  i.e., write_initial_log_record has been called only once,
+	  this flag is ORed to the type of that first log record */
+	MLOG_SINGLE_REC_FLAG = 128
 
-	// mark clustered index record deleted
-	MLOG_REC_CLUST_DELETE_MARK
+	/** one byte is written */
+	MLOG_1BYTE = 1
 
-	// mark secondary index record deleted
-	MLOG_REC_SEC_DELETE_MARK
+	/** 2 bytes ... */
+	MLOG_2BYTES = 2
 
-	_
-	// update of a record, record field sizes
-	MLOG_REC_UPDATE_IN_PLACE
+	/** 4 bytes ... */
+	MLOG_4BYTES = 4
 
-	// delete a record from a page
-	MLOG_REC_DELETE
+	/** 8 bytes ... */
+	MLOG_8BYTES = 8
 
-	// delete record list end on index page
-	MLOG_LIST_END_DELETE
+	/** Record insert */
+	MLOG_REC_INSERT = 9
 
-	// delete record list start on index page
-	MLOG_LIST_START_DELETE
+	/** Mark clustered index record deleted */
+	MLOG_REC_CLUST_DELETE_MARK = 10
 
-	// copy record list end to a new created index page
-	MLOG_LIST_END_COPY_CREATED
+	/** Mark secondary index record deleted */
+	MLOG_REC_SEC_DELETE_MARK = 11
 
-	// reorganize an index page in ROW_FORMAT = REDUNDANT
-	MLOG_PAGE_REORGANIZE
+	/** update of a record, preserves record field sizes */
+	MLOG_REC_UPDATE_IN_PLACE = 13
 
-	// create an index page
-	MLOG_PAGE_CREATE
+	/*!< Delete a record from a page */
+	MLOG_REC_DELETE = 14
 
-	// insert entry in an undo log
-	MLOG_UNDO_INSERT
+	/** Delete record list end on index page */
+	MLOG_LIST_END_DELETE = 15
 
-	// erase an undo log page end
-	MLOG_UNDO_ERASE_END
+	/** Delete record list start on index page */
+	MLOG_LIST_START_DELETE = 16
 
-	// initialize a page in an undo log
-	MLOG_UNDO_INIT
+	/** Copy record list end to a new created index page */
+	MLOG_LIST_END_COPY_CREATED = 17
+	/** Reorganize an index page in ROW_FORMAT=REDUNDANT */
+	MLOG_PAGE_REORGANIZE = 18
 
-	// discard an update undo log header
-	MLOG_UNDO_HDR_DISCARD
+	/** Create an index page */
+	MLOG_PAGE_CREATE = 19
 
-	// reuse an insert undo log header
-	MLOG_UNDO_HDR_REUSE
+	/** Insert entry in an undo log */
+	MLOG_UNDO_INSERT = 20
 
-	// create an undo log header
-	MLOG_UNDO_HDR_CREATE
+	/** erase an undo log page end */
+	MLOG_UNDO_ERASE_END = 21
 
-	// mark an index record as the predefined minimum record
-	MLOG_REC_MIN_MARK
+	/** initialize a page in an undo log */
+	MLOG_UNDO_INIT = 22
 
-	// initialize an ibuf bitmap page
-	MLOG_IBUF_BITMAP_INIT
+	/* discard an update undo log header (unused already in 3.23.53) */
+	MLOG_UNDO_HDR_DISCARD = 23
 
-	// full contents of a page
-	// MLOG_FULL_PAGE
-	_
-	// current LSN
-	// MLOG_LSN
+	/** reuse an insert undo log header */
+	MLOG_UNDO_HDR_REUSE = 24
 
-	// this means that a file page is taken into use and
-	// the prior contents of the page should be ignored:
-	// in recovery we must not trust the lsn values stored to the file page
-	MLOG_INIT_FILE_PAGE
+	/** create an undo log header */
+	MLOG_UNDO_HDR_CREATE = 25
 
-	// write a string to a page
-	MLOG_WRITE_STRING
+	/** mark an index record as the predefined minimum record */
+	MLOG_REC_MIN_MARK = 26
 
-	// if a single mtr writes several log records,
-	// this log record ends the sequence of these records
-	MLOG_MULTI_REC_END
+	/** initialize an ibuf bitmap page */
+	MLOG_IBUF_BITMAP_INIT = 27
 
-	// dummy log record used to pad a log block full
-	MLOG_DUMMY_RECORD
+	// #ifdef UNIV_LOG_LSN_DEBUG
+	/** Current LSN */
+	MLOG_LSN = 28
+	// #endif /* UNIV_LOG_LSN_DEBUG */
 
-	// log record about an .ibd file creation
-	MLOG_FILE_CREATE
+	/** this means that a file page is taken into use and the prior
+	  contents of the page should be ignored: in recovery we must not
+	  trust the lsn values stored to the file page.
+	  Note: it's deprecated because it causes crash recovery problem
+	  in bulk create index, and actually we don't need to reset page
+	  lsn in recv_recover_page_func() now. */
+	MLOG_INIT_FILE_PAGE = 29
 
-	// log record about an .ibd file rename
-	MLOG_FILE_RENAME
+	/** write a string to a page */
+	MLOG_WRITE_STRING = 30
 
-	// log record about an .ibd file deletion
-	MLOG_FILE_DELETE
+	/** If a single mtr writes several log records, this log
+	  record ends the sequence of these records */
+	MLOG_MULTI_REC_END = 31
 
-	// mark a compact index record as the predefined minimum record
-	MLOG_COMP_REC_MIN_MARK
+	/** dummy log record used to pad a log block full */
+	MLOG_DUMMY_RECORD = 32
 
-	// create a compact index page
-	MLOG_COMP_PAGE_CREATE
+	/** log record about creating an .ibd file, with format */
+	MLOG_FILE_CREATE = 33
 
-	// compact record insert
-	MLOG_COMP_REC_INSERT
+	/** rename a tablespace file that starts with (space_id,page_no) */
+	MLOG_FILE_RENAME = 34
 
-	// mark compact clustered index record deleted
-	MLOG_COMP_REC_CLUST_DELETE_MARK
+	/** delete a tablespace file that starts with (space_id,page_no) */
+	MLOG_FILE_DELETE = 35
 
-	// mark compact secondary index record deleted; this log record type is
-	// redundant, as MLOG_REC_SEC_DELETE_MARK is independent of the record format.
-	MLOG_COMP_REC_SEC_DELETE_MARK
+	/** mark a compact index record as the predefined minimum record */
+	MLOG_COMP_REC_MIN_MARK = 36
 
-	// update of a compact record, preserves record field sizes
-	MLOG_COMP_REC_UPDATE_IN_PLACE
+	/** create a compact index page */
+	MLOG_COMP_PAGE_CREATE = 37
 
-	// delete a compact record from a page
-	MLOG_COMP_REC_DELETE
+	/** compact record insert */
+	MLOG_COMP_REC_INSERT = 38
 
-	// delete compact record list end on index page
-	MLOG_COMP_LIST_END_DELETE
+	/** mark compact clustered index record deleted */
+	MLOG_COMP_REC_CLUST_DELETE_MARK = 39
 
-	// delete compact record list start on index page
-	MLOG_COMP_LIST_START_DELETE
+	/** mark compact secondary index record deleted; this log
+	  record type is redundant, as MLOG_REC_SEC_DELETE_MARK is
+	  independent of the record format. */
+	MLOG_COMP_REC_SEC_DELETE_MARK = 40
 
-	// copy compact record list end to a new created index page
-	MLOG_COMP_LIST_END_COPY_CREATED
+	/** update of a compact record, preserves record field sizes */
+	MLOG_COMP_REC_UPDATE_IN_PLACE = 41
 
-	// reorganize an index page
-	MLOG_COMP_PAGE_REORGANIZE
+	/** delete a compact record from a page */
+	MLOG_COMP_REC_DELETE = 42
 
-	// log record about creating an.ibd file, with format
-	MLOG_FILE_CREATE2
+	/** delete compact record list end on index page */
+	MLOG_COMP_LIST_END_DELETE = 43
 
-	// write the node pointer of a record on a compressed non-leaf B-tree page
-	MLOG_ZIP_WRITE_NODE_PTR
+	/*** delete compact record list start on index page */
+	MLOG_COMP_LIST_START_DELETE = 44
 
-	// write the BLOB pointer of an externally stored column on a compressed page
-	MLOG_ZIP_WRITE_BLOB_PTR
+	/** copy compact record list end to a new created index page */
+	MLOG_COMP_LIST_END_COPY_CREATED = 45
 
-	// write to compressed page header
-	MLOG_ZIP_WRITE_HEADER
+	/** reorganize an index page */
+	MLOG_COMP_PAGE_REORGANIZE = 46
 
-	// compress an index page
-	MLOG_ZIP_PAGE_COMPRESS
+	/** log record about creating an .ibd file, with format */
+	MLOG_FILE_CREATE2 = 47
 
-	// compress an index page without logging it's image
-	MLOG_ZIP_PAGE_COMPRESS_NO_DATA
+	/** write the node pointer of a record on a compressed
+	  non-leaf B-tree page */
+	MLOG_ZIP_WRITE_NODE_PTR = 48
 
-	// reorganize a compressed page
-	MLOG_ZIP_PAGE_REORGANIZE
+	/** write the BLOB pointer of an externally stored column
+	  on a compressed page */
+	MLOG_ZIP_WRITE_BLOB_PTR = 49
 
-	// add by mysql-5.7.19
+	/** write to compressed page header */
+	MLOG_ZIP_WRITE_HEADER = 50
 
-	// rename a tablespace file that starts with (space_id,page_no)
-	MLOG_FILE_RENAME2
+	/** compress an index page */
+	MLOG_ZIP_PAGE_COMPRESS = 51
 
-	// note the first use of a tablespace file since checkpoint
-	MLOG_FILE_NAME
+	/** compress an index page without logging it's image */
+	MLOG_ZIP_PAGE_COMPRESS_NO_DATA = 52
 
-	// note that all buffered log was written since a checkpoint
-	MLOG_CHECKPOINT
+	/** reorganize a compressed page */
+	MLOG_ZIP_PAGE_REORGANIZE = 53
 
-	// Create a R-Tree index page
-	MLOG_PAGE_CREATE_RTREE
+	/** rename a tablespace file that starts with (space_id,page_no) */
+	MLOG_FILE_RENAME2 = 54
 
-	// create a R-tree compact page
-	MLOG_COMP_PAGE_CREATE_RTREE
+	/** note the first use of a tablespace file since checkpoint */
+	MLOG_FILE_NAME = 55
 
-	// this means that a file page is taken into use. We use it to replace MLOG_INIT_FILE_PAGE
-	MLOG_INIT_FILE_PAGE2
+	/** note that all buffered log was written since a checkpoint */
+	MLOG_CHECKPOINT = 56
 
-	// Table is being truncated. (Marked only for file-per-table)
-	MLOG_TRUNCATE
+	/** Create a R-Tree index page */
+	MLOG_PAGE_CREATE_RTREE = 57
 
-	// notify that an index tree is being loaded without writing redo log about individual pages
-	MLOG_INDEX_LOAD
-	//  biggest value (used in assertions )
-	//MLOG_BIGGEST_TYPE
+	/** create a R-tree compact page */
+	MLOG_COMP_PAGE_CREATE_RTREE = 58
+
+	/** this means that a file page is taken into use.
+	  We use it to replace MLOG_INIT_FILE_PAGE. */
+	MLOG_INIT_FILE_PAGE2 = 59
+
+	/** Table is being truncated. (Marked only for file-per-table) */
+	MLOG_TRUNCATE = 60 // Disabled for WL6378 */
+
+	/** notify that an index tree is being loaded without writing
+	  redo log about individual pages */
+	MLOG_INDEX_LOAD = 61
+
+	/** log for some persistent dynamic metadata change */
+	MLOG_TABLE_DYNAMIC_META = 62
+
+	/** create a SDI index page */
+	MLOG_PAGE_CREATE_SDI = 63
+
+	/** create a SDI compact page */
+	MLOG_COMP_PAGE_CREATE_SDI = 64
+
+	/** Used in tests of redo log. It must never be used outside unit tests. */
+	MLOG_TEST = 65
+
+	/** biggest value (used in assertions) */
+	MLOG_BIGGEST_TYPE = MLOG_TEST
 )
 
 // Define the Undo record type.

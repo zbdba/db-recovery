@@ -16,11 +16,52 @@ package redo
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/zbdba/db-recovery/recovery/ibdata"
 	"github.com/zbdba/db-recovery/recovery/logs"
 	"github.com/zbdba/db-recovery/recovery/utils"
 )
+
+func (parse *Parse) MLOG_N_BYTES(data []byte, pos *uint64, MyType uint64) error {
+
+	offset := utils.MatchReadFrom2(data[*pos:])
+	logs.Debug("offset is", offset, "pos is ", *pos, " data len is ", len(data))
+
+	*pos += 2
+
+	if MyType == MLOG_8BYTES {
+		value, _, err := utils.MatchParseCompressed(data, *pos)
+		if err != nil {
+			return err
+		}
+
+		size, err := utils.MatchGetCompressedSize(value)
+		if err != nil {
+			return err
+		}
+		*pos += size
+		*pos += 4
+	} else {
+		_, num, err := utils.MatchParseCompressed(data, *pos)
+		*pos += num
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (parse *Parse) MLOG_REC_SEC_DELETE_MARK(data []byte, pos *uint64) {
+
+	value := utils.MatchReadFrom1(data[*pos:])
+	*pos++
+
+	offset := utils.MatchReadFrom2(data[*pos:])
+	*pos += 2
+
+	logs.Debug("values is ", value, " offset is ", offset)
+}
 
 // Parse the undo record.
 func (parse *Parse) MLOG_UNDO_INSERT(data []byte, pos *uint64) error {
@@ -38,7 +79,7 @@ func (parse *Parse) MLOG_UNDO_INSERT(data []byte, pos *uint64) error {
 	}()
 
 	TypeCmpl := int64(utils.MatchReadFrom1(data[*pos:]))
-	*pos ++
+	*pos++
 
 	TypeCmpl &= ^TRX_UNDO_UPD_EXTERN
 	UndoType := TypeCmpl & (TRX_UNDO_CMPL_INFO_MULT - 1)
@@ -67,7 +108,7 @@ func (parse *Parse) MLOG_UNDO_INSERT(data []byte, pos *uint64) error {
 	if UndoType != TRX_UNDO_INSERT_REC {
 		// Skip info bits
 		logs.Debug("info bits is ", data[*pos:][0])
-		*pos ++
+		*pos++
 
 		TrxId := utils.MatchUllReadComPressed(data, pos)
 		logs.Debug("TrxID is ", TrxId)
@@ -76,20 +117,20 @@ func (parse *Parse) MLOG_UNDO_INSERT(data []byte, pos *uint64) error {
 		logs.Debug("RollPtr is ", RollPtr)
 	}
 
-	Table, err := parse.GetTableByTableID(TableId)
+	Table, err := parse.getTableByTableID(TableId)
 	if err != nil {
 		*pos = StartPos + DataLen
 		return err
 	}
 
-	PrimaryFields, err := parse.GetPrimaryKey(Table)
+	PrimaryFields, err := parse.getPrimaryKey(Table)
 	if err != nil {
 		*pos = StartPos + DataLen
 		return err
 	}
 
 	for _, v := range PrimaryFields {
-		Column := parse.GetColumnsByName(Table, v.ColumnName)
+		Column := parse.getColumnsByName(Table, v.ColumnName)
 		// get the unique key.
 		FiledLen, num, err := utils.MatchParseCompressed(data, *pos)
 		if err != nil {
@@ -135,7 +176,7 @@ func (parse *Parse) MLOG_UNDO_INSERT(data []byte, pos *uint64) error {
 			logs.Debug("Pos is ", Pos, " num is ", num)
 			*pos += num
 
-			c, err := parse.GetColumnByPos(Table, Pos)
+			c, err := parse.getColumnByPos(Table, Pos)
 			if err != nil {
 				return err
 			}
@@ -169,14 +210,14 @@ func (parse *Parse) MLOG_UNDO_INSERT(data []byte, pos *uint64) error {
 		// if user don't identify table and database name, print all sql statement.
 		if Table.DBName == parse.DBName {
 			if Table.TableName == parse.TableName {
-				parse.MakeSQL(Table, PrimaryFields, columns)
+				parse.makeSQL(Table, PrimaryFields, columns)
 			} else if parse.TableName == "" {
-				parse.MakeSQL(Table, PrimaryFields, columns)
+				parse.makeSQL(Table, PrimaryFields, columns)
 			}
 		} else if parse.DBName == "" && parse.TableName == "" {
-			parse.MakeSQL(Table, PrimaryFields, columns)
+			parse.makeSQL(Table, PrimaryFields, columns)
 		} else if parse.TableName != "" && parse.TableName == Table.TableName {
-			parse.MakeSQL(Table, PrimaryFields, columns)
+			parse.makeSQL(Table, PrimaryFields, columns)
 		}
 	}
 
@@ -220,6 +261,53 @@ func (parse *Parse) MLOG_UNDO_INSERT(data []byte, pos *uint64) error {
 		"undo insert len is ", DataLen, " complete undo insert parse.")
 
 	return nil
+}
+
+func (parse *Parse) getPrimaryKey(Table ibdata.Tables) ([]*ibdata.Fields, error) {
+
+	var fields []*ibdata.Fields
+
+	for _, idx := range Table.Indexes {
+		if strings.TrimSpace(idx.Name) == "PRIMARY" || strings.TrimSpace(idx.Name) == "GEN_CLUST_INDEX" {
+			if strings.TrimSpace(idx.Name) == "GEN_CLUST_INDEX" {
+				fields = []*ibdata.Fields{&ibdata.Fields{ColumnPos: 0, ColumnName: "DB_ROW_ID"}}
+			} else {
+				fields = idx.Fields
+			}
+		}
+	}
+	return fields, nil
+}
+
+func (parse *Parse) getColumnsByName(table ibdata.Tables, FieldName string) ibdata.Columns {
+	for _, c := range table.Columns {
+		if c.FieldName == FieldName {
+			return c
+		}
+	}
+	return ibdata.Columns{}
+}
+
+func (parse *Parse) getColumnByPos(Table ibdata.Tables, Pos uint64) (*ibdata.Columns, error) {
+	for i, c := range Table.Columns {
+		if uint64(i) == Pos {
+			return &c, nil
+		}
+	}
+	logs.Error("table ", Table.TableName, " have not found field pos ", Pos)
+	return &ibdata.Columns{}, fmt.Errorf("field not found")
+}
+
+func (parse *Parse) getTableByTableID(TableID uint64) (ibdata.Tables, error) {
+	v, ok := parse.TableMap[TableID]
+	if ok {
+		t := v
+		return t, nil
+	} else {
+		ErrMsg := fmt.Sprintf("table not found, table id is %d", TableID)
+		logs.Debug(ErrMsg)
+		return ibdata.Tables{}, fmt.Errorf(ErrMsg)
+	}
 }
 
 func (parse *Parse) MLOG_UNDO_INIT(data []byte, pos *uint64) error {
@@ -577,86 +665,4 @@ func (parse *Parse) MLOG_ZIP_PAGE_COMPRESS_NO_DATA(data []byte, pos *uint64) err
 		*pos++
 	}
 	return nil
-}
-
-func (parse *Parse) ValidateLogHeader(LogType uint64, SpaceID uint64) bool {
-
-	HaveType := true
-
-	switch LogType {
-
-	case MLOG_1BYTE, MLOG_2BYTES, MLOG_4BYTES, MLOG_8BYTES:
-
-	case MLOG_REC_SEC_DELETE_MARK:
-
-	case MLOG_UNDO_INSERT:
-
-	case MLOG_UNDO_ERASE_END:
-
-	case MLOG_UNDO_INIT:
-	case MLOG_UNDO_HDR_DISCARD:
-
-	case MLOG_UNDO_HDR_REUSE:
-
-	case MLOG_UNDO_HDR_CREATE:
-
-	case MLOG_IBUF_BITMAP_INIT:
-
-	case MLOG_INIT_FILE_PAGE, MLOG_INIT_FILE_PAGE2:
-
-	case MLOG_WRITE_STRING:
-
-	case MLOG_MULTI_REC_END:
-
-	case MLOG_DUMMY_RECORD:
-
-	case MLOG_FILE_RENAME, MLOG_FILE_CREATE,
-		MLOG_FILE_DELETE, MLOG_FILE_CREATE2,
-		MLOG_FILE_RENAME2, MLOG_FILE_NAME:
-
-	case MLOG_REC_MIN_MARK, MLOG_COMP_REC_MIN_MARK:
-
-	case MLOG_PAGE_CREATE, MLOG_COMP_PAGE_CREATE:
-
-	case MLOG_REC_INSERT, MLOG_COMP_REC_INSERT:
-
-	case MLOG_REC_CLUST_DELETE_MARK, MLOG_COMP_REC_CLUST_DELETE_MARK:
-	case MLOG_COMP_REC_SEC_DELETE_MARK:
-
-	case MLOG_REC_UPDATE_IN_PLACE, MLOG_COMP_REC_UPDATE_IN_PLACE:
-
-	case MLOG_REC_DELETE, MLOG_COMP_REC_DELETE:
-
-	case MLOG_LIST_END_DELETE,
-		MLOG_COMP_LIST_END_DELETE,
-		MLOG_LIST_START_DELETE,
-		MLOG_COMP_LIST_START_DELETE:
-
-	case MLOG_LIST_END_COPY_CREATED, MLOG_COMP_LIST_END_COPY_CREATED:
-
-	case MLOG_PAGE_REORGANIZE, MLOG_COMP_PAGE_REORGANIZE, MLOG_ZIP_PAGE_REORGANIZE:
-
-	case MLOG_ZIP_WRITE_NODE_PTR:
-	case MLOG_ZIP_WRITE_BLOB_PTR:
-
-	case MLOG_ZIP_WRITE_HEADER:
-
-	case MLOG_ZIP_PAGE_COMPRESS:
-
-	case MLOG_ZIP_PAGE_COMPRESS_NO_DATA:
-	case MLOG_CHECKPOINT:
-	case MLOG_COMP_PAGE_CREATE_RTREE, MLOG_PAGE_CREATE_RTREE:
-	case MLOG_TRUNCATE:
-	case MLOG_INDEX_LOAD:
-	default:
-		HaveType = false
-		break
-	}
-
-	//_, err := parse.GetTableBySpaceID(SpaceID)
-	//if err != nil || !HaveType {
-	//	return false
-	//}
-
-	return HaveType
 }

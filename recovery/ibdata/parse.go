@@ -736,9 +736,9 @@ func (parse *Parse) parsePageHeader(page *Page) *Page {
 	page.ph.PAGE_N_RECS = pageNRec
 	pos += 2
 
-	pageMaxTrxId := utils.MatchReadFrom8(d[pos:])
-	logs.Debug("pageMaxTrxId:", pageMaxTrxId)
-	page.ph.PAGE_MAX_TRX_ID = pageMaxTrxId
+	pageMaxTrxID := utils.MatchReadFrom8(d[pos:])
+	logs.Debug("pageMaxTrxID:", pageMaxTrxID)
+	page.ph.PAGE_MAX_TRX_ID = pageMaxTrxID
 	pos += 8
 
 	pageLevel := utils.MatchReadFrom2(d[pos:])
