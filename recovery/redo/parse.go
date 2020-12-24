@@ -23,6 +23,8 @@ import (
 	"os"
 )
 
+// https://dev.mysql.com/doc/dev/mysql-server/8.0.11/PAGE_INNODB_REDO_LOG_FORMAT.html
+
 // Parse for redo log
 type Parse struct {
 	// Store table info.
@@ -82,7 +84,7 @@ func (parse *Parse) ParseRedoLogs(logFileList []string) error {
 
 		// Move to the start of the logs
 		// Current position is 512 + 512 + 512 = 1536 and logs start at 2048
-		if pos, err := file.Seek(BlockSize, io.SeekCurrent); err == nil {
+		if pos, err := file.Seek(OS_FILE_LOG_BLOCK_SIZE, io.SeekCurrent); err == nil {
 			logs.Debug("Current position: ", pos)
 		} else {
 			return err
@@ -91,7 +93,7 @@ func (parse *Parse) ParseRedoLogs(logFileList []string) error {
 		for {
 			// When parsing the redo log file, record the read position.
 			var pos uint64
-			d, err := utils.ReadNextBytes(file, BlockSize)
+			d, err := utils.ReadNextBytes(file, OS_FILE_LOG_BLOCK_SIZE)
 			if err != nil {
 				break
 			}
@@ -104,7 +106,7 @@ func (parse *Parse) ParseRedoLogs(logFileList []string) error {
 			}
 
 			// LOG_BLOCK_TRL_SIZE, for checksum.
-			if dataLen >= BlockSize {
+			if dataLen >= OS_FILE_LOG_BLOCK_SIZE {
 				// TODO: const
 				dataLen -= 4
 			}
@@ -413,22 +415,53 @@ func (parse *Parse) readRedoBlockHeader(pos *uint64, d []byte) (uint64, uint64, 
 	return dataLen, firstRecord, nil
 }
 
+/*
+storage/innobase/include/log0log.ic
+
+void meb_log_print_file_hdr(byte *block) {
+  ib::info(ER_IB_MSG_626) << "Log file header:"
+                          << " format "
+                          << mach_read_from_4(block + LOG_HEADER_FORMAT)
+                          << " pad1 "
+                          << mach_read_from_4(block + LOG_HEADER_PAD1)
+                          << " start_lsn "
+                          << mach_read_from_8(block + LOG_HEADER_START_LSN)
+                          << " creator '" << block + LOG_HEADER_CREATOR << "'"
+                          << " checksum " << log_block_get_checksum(block);
+}
+*/
 func (parse *Parse) readHeader(file *os.File) error {
 
 	pos := 0
-	data, err := utils.ReadNextBytes(file, 512)
+	data, err := utils.ReadNextBytes(file, OS_FILE_LOG_BLOCK_SIZE)
 	if err != nil {
 		return err
 	}
 
+	// storage/innobase/include/log0types.h
+	///** The MySQL 5.7.9 redo log format identifier. We can support recovery
+	//  from this format if the redo log is clean (logically empty). */
+	//LOG_HEADER_FORMAT_5_7_9 = 1,
+	//
+	///** Remove MLOG_FILE_NAME and MLOG_CHECKPOINT, introduce MLOG_FILE_OPEN
+	//  redo log record. */
+	//	LOG_HEADER_FORMAT_8_0_1 = 2,
+	//
+	///** Allow checkpoint_lsn to point any data byte within redo log (before
+	//  it had to point the beginning of a group of log records). */
+	//	LOG_HEADER_FORMAT_8_0_3 = 3,
 	logHeaderFormat := utils.MatchReadFrom4(data[pos:])
-	logs.Debug("LOG_HEADER_FORMAT is ", logHeaderFormat)
-	pos += 8
+	logs.Debug("LOG_HEADER_FORMAT: ", logHeaderFormat)
+	pos += 4
+
+	logHeaderPAD1 := utils.MatchReadFrom4(data[pos:])
+	logs.Debug("LOG_HEADER_PAD1: ", logHeaderPAD1)
+	pos += 4
 
 	logHeaderStartLsn := utils.MatchReadFrom8(data[pos:])
-	logs.Debug("LOG_HEADER_START_LSN is ", logHeaderStartLsn)
+	logs.Debug("LOG_HEADER_START_LSN: ", logHeaderStartLsn)
 
-	return nil
+	return err
 }
 
 func (parse *Parse) readCheckpoint(file *os.File) error {

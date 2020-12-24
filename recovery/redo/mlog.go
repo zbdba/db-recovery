@@ -292,13 +292,13 @@ func (parse *Parse) getColumnsByName(table ibdata.Tables, fieldName string) ibda
 	return ibdata.Columns{}
 }
 
-func (parse *Parse) getColumnByPos(table ibdata.Tables, Pos uint64) (*ibdata.Columns, error) {
+func (parse *Parse) getColumnByPos(table ibdata.Tables, pos uint64) (*ibdata.Columns, error) {
 	for i, c := range table.Columns {
-		if uint64(i) == Pos {
+		if uint64(i) == pos {
 			return &c, nil
 		}
 	}
-	logs.Error("table ", table.TableName, " have not found field pos ", Pos)
+	logs.Error("table ", table.TableName, " have not found field pos ", pos)
 	return &ibdata.Columns{}, fmt.Errorf("field not found")
 }
 

@@ -16,7 +16,9 @@ package redo
 
 // The MySQL Innodb redo log block size.
 const (
-	BlockSize = 512
+	// storage/innobase/include/os0file.h
+	// #define OS_FILE_LOG_BLOCK_SIZE 512
+	OS_FILE_LOG_BLOCK_SIZE = 512
 )
 
 // The MySQL Innodb redo record type.

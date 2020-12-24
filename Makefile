@@ -29,6 +29,7 @@ db-recovery:
 .PHONY: clean
 clean:
 	@rm -rf ${ROOT}/bin
+	@rm -rf ${ROOT}/cmd/test/fixture
 
 .PHONY: fmt
 fmt:

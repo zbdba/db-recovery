@@ -50,10 +50,7 @@ func InitLogs(path, LogLevel string) error {
 		level = LevelInfo
 	}
 	err = flag.Set("v", strconv.Itoa(level))
-	if err != nil {
-		return err
-	}
-	return nil
+	return err
 }
 
 func FlushLogs() {
